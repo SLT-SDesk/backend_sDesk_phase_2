@@ -1,0 +1,4 @@
+{
+  "name": "sdesk-backend",
+  "description": "Service Desk Backend API built with NestJS"
+}

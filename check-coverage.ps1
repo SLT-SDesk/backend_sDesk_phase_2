@@ -1,0 +1,1 @@
+node ./node_modules/jest/bin/jest.js --coverage --testPathPattern="incident.controller.spec" --silent 2>&1 | Select-String -Pattern "incident.controller.ts|% Stmts|% Branch|% Funcs|% Lines" -Context 0,1

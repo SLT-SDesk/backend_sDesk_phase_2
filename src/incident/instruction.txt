@@ -1,0 +1,2 @@
+Use this command to create the sequence in postgresql database sdesk_db:
+CREATE SEQUENCE incident_number_seq START 1;
