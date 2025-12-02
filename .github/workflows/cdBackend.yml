@@ -53,7 +53,7 @@ jobs:
             npm install                 #Update 3/12/2025 remove --production to install all dependencies
 
             echo "Restarting Backend using PM2..."
-            pm2 reload sdesk || pm2 start server.js --name sdesk        #Update 3/12/2025 changed from sdesk-backend to sdesk
+            pm2 reload sdesk || pm2 start dist/main.js --name sdesk        #Update 3/12/2025 changed from sdesk-backend to sdesk , Changed dist/main.js
             pm2 save
 
             echo "Backend Deployment Completed Successfully."
