@@ -50,6 +50,7 @@ jobs:
 
             echo "Installing backend dependencies..."
             cd /var/www/sdesk_new/backend_sDesk_phase_2
+            rm -rf package-lock.json node_modules  #Update 3/12/2025 added "rm -rf package-lock.json node_modules" to ensure clean install
             npm install                     #Update 3/12/2025 remove --production to install all dependencies
             npm run build                   #Update 3/12/2025 add npm run build
 
