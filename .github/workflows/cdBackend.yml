@@ -1,0 +1,59 @@
+name: Deploy SDesk Backend (Testing)
+
+on:
+  push:
+    branches:
+      - testing
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: ⬇️ Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🛠️ Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 🚀 Upload Backend Code to Server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 3251
+          source: "backend_sDesk_phase_2/"
+          target: "/home/${{ secrets.SSH_USERNAME }}/sdesk_backend_tmp/"
+          strip_components: 1
+
+      - name: 🔄 Deploy Backend & Restart PM2
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 3251
+          script: |
+            echo "Starting SDesk Backend Deployment..."
+
+            mkdir -p ~/sdesk_backend_tmp
+
+            echo "Removing old backend code..."
+            sudo rm -rf /var/www/sdesk_new/backend_sDesk_phase_2/*
+
+            echo "Copying new backend..."
+            sudo cp -r ~/sdesk_backend_tmp/* /var/www/sdesk_new/backend_sDesk_phase_2/
+
+            echo "Installing backend dependencies..."
+            cd /var/www/sdesk_new/backend_sDesk_phase_2
+            npm install --production
+
+            echo "Restarting Backend using PM2..."
+            pm2 reload sdesk-backend || pm2 start server.js --name sdesk-backend
+            pm2 save
+
+            echo "Backend Deployment Completed Successfully."
