@@ -55,7 +55,7 @@ jobs:
             npm run build                   #Update 3/12/2025 add npm run build
 
             echo "Restarting Backend using PM2..."
-            pm2 delete sdesk || pm2 start dist/main.js --name sdesk --update-env       #Update 3/12/2025 changed from sdesk-backend to sdesk , Changed dist/main.js
+            sudo pm2 delete sdesk || sudo pm2 start dist/main.js --name sdesk --update-env       #Update 3/12/2025 changed from sdesk-backend to sdesk , Changed dist/main.js
             pm2 save
 
             echo "Backend Deployment Completed Successfully."
