@@ -56,7 +56,8 @@ jobs:
 
             echo "Restarting Backend using PM2..."
             sudo pm2 status     #update 3/12/2025 added to check pm2 status
-            sudo pm2 delete sdesk || sudo pm2 start dist/main.js --name sdesk --update-env       #Update 3/12/2025 changed from sdesk-backend to sdesk , Changed dist/main.js
+            sudo pm2 delete sdesk || true
+            sudo pm2 start dist/main.js --name sdesk --update-env  #Update 3/12/2025 changed from sdesk-backend to sdesk , Changed dist/main.js , changed backend starting process
             pm2 save
 
             echo "Backend Deployment Completed Successfully."
