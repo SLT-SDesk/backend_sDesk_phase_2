@@ -64,6 +64,7 @@ export async function bootstrap() {
   app.use('/uploads', express.static(join(process.cwd(), 'uploads')));
 
   const allowedOrigins = [
+    'https://dpdlab1.slt.lk:8448',      // update: 3/12/2025 DevOps change  
     'https://sdesk-frontend.vercel.app',
     'http://localhost:3000',
     'http://localhost:5173',

@@ -51,7 +51,7 @@ dotenv.config();
          IncidentHistory,
       ],
       synchronize: true,
-      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+      ssl: false,  //update: 3/12/2025 DevOps change Remove "process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false }"
     }),
     IncidentModule,
     TeamAdminModule,
