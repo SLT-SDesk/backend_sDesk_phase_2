@@ -24,6 +24,7 @@ import { TeamAdmin } from './teamadmin/entities/teamadmin.entity';
 import { TeamAdminModule } from './teamadmin/teamadmin.module';
 import { Technician } from './technician/entities/technician.entity';
 import { TechnicianModule } from './technician/technician.module';
+import { TechnicianPerformance } from './incident/entities/technician-performance.entity';
 
 
 dotenv.config();
@@ -49,6 +50,7 @@ dotenv.config();
         Technician,
         Location,
          IncidentHistory,
+         TechnicianPerformance, // new***
       ],
       synchronize: true,
       ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,

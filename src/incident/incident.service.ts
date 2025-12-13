@@ -18,6 +18,7 @@ import { IncidentDto } from './dto/incident.dto';
 import { IncidentHistory } from './entities/incident-history.entity';
 import { Incident, IncidentStatus } from './entities/incident.entity';
 import { INCIDENT_REQUIRED_FIELDS } from './incident.interface';
+import { TechnicianPerformance } from './entities/technician-performance.entity';
 
 @Injectable()
 export class IncidentService {
@@ -41,6 +42,9 @@ export class IncidentService {
     @InjectRepository(TeamAdmin)
     private teamAdminRepository: Repository<TeamAdmin>,
     private notificationsService: NotificationsService,
+    @InjectRepository(TechnicianPerformance)
+    private readonly performanceRepo: Repository<TechnicianPerformance>, //
+
   ) { }
 
   // Helper method to get display_name from slt_users table by serviceNum
@@ -818,6 +822,87 @@ export class IncidentService {
       // Update the incident
       Object.assign(incident, incidentDto);
       const updatedIncident = await this.incidentRepository.save(incident);
+
+      // ******performance-tracking logic********
+      // helper to format minutes into "hours min" or "min"
+      function formatMinutes(totalMinutes: number): string {
+        if (totalMinutes < 60) {
+          return `${totalMinutes}m`;
+        }
+        const hours = Math.floor(totalMinutes / 60);
+        const minutes = totalMinutes % 60;
+        return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+      }
+      // Get created time from first incident history (for response time)
+      const firstHistory = await this.incidentHistoryRepository.findOne({
+        where: { incidentNumber: incident_number },
+        order: { updatedOn: 'ASC' },
+      });
+
+      const createdAt = firstHistory?.updatedOn;
+
+      // response time
+      // Open to In Progress
+      if (
+        incidentDto.status === IncidentStatus.IN_PROGRESS &&
+        originalStatus !== IncidentStatus.IN_PROGRESS &&
+        createdAt
+      ) {
+        const now = new Date();
+
+        const diffMinutes = Math.floor(
+          (now.getTime() - createdAt.getTime()) / 60000
+        );
+
+        const formatted = formatMinutes(diffMinutes);
+        //Save response time into DB
+        await this.performanceRepo.save({
+          incidentNumber: incident.incident_number,
+          responseTime: formatted,
+        });
+      }
+
+      // resolve time
+      // In Progress to closed
+      if (
+        incidentDto.status === IncidentStatus.CLOSED &&
+        originalStatus !== IncidentStatus.CLOSED
+      ) {
+        // Get the "In Progress" timestamp
+        const inProgress = await this.incidentHistoryRepository.findOne({
+          where: {
+            incidentNumber: incident_number,
+            status: IncidentStatus.IN_PROGRESS,
+          },
+          order: { updatedOn: 'ASC' },
+        });
+        //If we found IN_PROGRESS timestamp, calculate difference
+        if (inProgress) {
+          const inProgressTime = new Date(inProgress.updatedOn);
+          const now = new Date();
+
+          const diffMinutes = Math.floor(
+            (now.getTime() - inProgressTime.getTime()) / 60000
+          );
+
+          const formatted = formatMinutes(diffMinutes);
+          //Save or update record
+          let record = await this.performanceRepo.findOne({
+            where: { incidentNumber: incident.incident_number },
+          });
+
+          if (record) {
+            record.resolveTime = formatted;
+            await this.performanceRepo.save(record);
+          } else {
+            await this.performanceRepo.save({
+              incidentNumber: incident.incident_number,
+              resolveTime: formatted,
+            });
+          }
+        }
+      }
+//************technician performance tracking ending */
 
       // --- EMIT SOCKET EVENTS FOR TRANSFERS ---
       // Check if this was a Tier2 transfer, team admin assignment, category-based reassignment, or manual reassignment
