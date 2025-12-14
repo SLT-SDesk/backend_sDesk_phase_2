@@ -26,6 +26,7 @@ import { Technician } from './technician/entities/technician.entity';
 import { TechnicianModule } from './technician/technician.module';
 import { SessionsModule } from './sessions/sessions.module';
 import { Session } from './sessions/entities/session.entity';
+import { TechnicianPerformance } from './incident/entities/technician-performance.entity';
 
 
 dotenv.config();
@@ -52,6 +53,7 @@ dotenv.config();
         Location,
          IncidentHistory,
           Session
+         TechnicianPerformance, // new***
       ],
       synchronize: true,
       ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,

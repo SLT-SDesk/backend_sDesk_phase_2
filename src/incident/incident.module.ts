@@ -11,6 +11,8 @@ import { IncidentHistory } from './entities/incident-history.entity';
 import { Incident } from './entities/incident.entity';
 import { IncidentController } from './incident.controller';
 import { IncidentService } from './incident.service';
+import { TechnicianPerformance } from './entities/technician-performance.entity'; // new**
+
 
 @Module({
   imports: [
@@ -22,6 +24,7 @@ import { IncidentService } from './incident.service';
       CategoryItem,
       SLTUser,
       TeamAdmin,
+      TechnicianPerformance, //new**
     ]),
     TechnicianModule,
     NotificationsModule,
