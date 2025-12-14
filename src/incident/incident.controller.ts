@@ -242,6 +242,33 @@ export class IncidentController {
       throw error;
     }
   }
+
+  @Get('technician/:serviceNum/stats')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('user', 'admin', 'technician', 'teamLeader', 'superAdmin')
+  async getTechnicianStats(
+    @Param('serviceNum') serviceNum: string,
+  ): Promise<any> {
+    try {
+      return await this.incidentService.getTechnicianStats(serviceNum);
+    } catch (error) {
+      throw new InternalServerErrorException('Failed to fetch technician statistics');
+    }
+  }
+
+  @Get('technician/:serviceNum/performance')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('user', 'admin', 'technician', 'teamLeader', 'superAdmin')
+  async getTechnicianPerformance(
+    @Param('serviceNum') serviceNum: string,
+  ): Promise<any> {
+    try {
+      return await this.incidentService.getTechnicianPerformance(serviceNum);
+    } catch (error) {
+      throw new InternalServerErrorException('Failed to fetch technician performance metrics');
+    }
+  }
+
   @Post(':incident_number/update-with-attachment')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('user', 'admin', 'technician', 'teamLeader', 'superAdmin')
