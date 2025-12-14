@@ -858,8 +858,15 @@ export class IncidentService {
         //Save response time into DB
         await this.performanceRepo.save({
           incidentNumber: incident.incident_number,
-          responseTime: formatted,
+
+          // NEW FIELDS (STEP 2 GOAL)
+          responseTimeMinutes: diffMinutes,
+          responseTimeLabel: formatMinutes(diffMinutes),
+
+          // OLD FIELD (KEEP TEMPORARILY)
+          responseTime: formatMinutes(diffMinutes),
         });
+
       }
 
       // resolve time
@@ -892,17 +899,29 @@ export class IncidentService {
           });
 
           if (record) {
-            record.resolveTime = formatted;
+            record.resolutionTimeMinutes = diffMinutes;
+            record.resolutionTimeLabel = formatMinutes(diffMinutes);
+
+            // KEEP OLD FIELD TEMPORARILY
+            record.resolveTime = formatMinutes(diffMinutes);
+
             await this.performanceRepo.save(record);
           } else {
             await this.performanceRepo.save({
               incidentNumber: incident.incident_number,
-              resolveTime: formatted,
+
+              // NEW FIELDS
+              resolutionTimeMinutes: diffMinutes,
+              resolutionTimeLabel: formatMinutes(diffMinutes),
+
+              // OLD FIELD
+              resolveTime: formatMinutes(diffMinutes),
             });
           }
+
         }
       }
-//************technician performance tracking ending */
+      //************technician performance tracking ending */
 
       // --- EMIT SOCKET EVENTS FOR TRANSFERS ---
       // Check if this was a Tier2 transfer, team admin assignment, category-based reassignment, or manual reassignment
