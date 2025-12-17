@@ -52,7 +52,7 @@ dotenv.config();
         Technician,
         Location,
          IncidentHistory,
-          Session
+          Session,
          TechnicianPerformance, // new***
       ],
       synchronize: true,

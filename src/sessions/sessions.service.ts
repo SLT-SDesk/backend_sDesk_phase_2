@@ -49,6 +49,30 @@ export class SessionsService {
     }
   }
 
-  
+  //Get all sessions for a specific technician by service number with technician details
+  async getSessionsByTechnician(serviceNumber:string):Promise<Session[]> {
+    try {
+      const sessions = await this.sessionsRepository.find({
+        where: { technician_service_number: serviceNumber },
+        relations: ['technician'],
+      });
+      return sessions;
+    } catch (error) {
+      throw new InternalServerErrorException(
+        'Failed to fetch sessions: ' + (error as Error).message,
+      );
+    }
+  }
+
+  //get all sessions
+  async getAllSessions():Promise<Session[]> {
+    try {
+      return await this.sessionsRepository.find();
+    } catch (error) {
+      throw new InternalServerErrorException(
+        'Failed to fetch sessions: ' + (error as Error).message,
+      );
+    }
+  }
 
 }

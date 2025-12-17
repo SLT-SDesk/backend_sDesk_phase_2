@@ -23,6 +23,7 @@ import { CreateTechnicianDto } from './dto/create-technician.dto';
 import { Technician } from './entities/technician.entity';
 import { AuthService } from '../auth/auth.service';
 import { Response, Request } from 'express';
+import { Session } from '../sessions/entities/session.entity';
 
 @Controller()
 export class TechnicianController {
@@ -30,6 +31,42 @@ export class TechnicianController {
     private readonly technicianService: TechnicianService,
     private readonly authService: AuthService,
   ) {}
+
+  @Get('technician/sessions/:serviceNum')
+  // @UseGuards(JwtAuthGuard, RolesGuard)
+  // @Roles('user', 'admin', 'technician', 'teamLeader', 'superAdmin')
+  async getTechnicianWithSessions(
+    @Param('serviceNum') serviceNum: string,
+  ): Promise<Technician> {
+    try {
+      return await this.technicianService.getTechnicianWithSessions(serviceNum);
+    } catch (error) {
+      throw new HttpException(
+        error.message || 'Failed to fetch technician with sessions.',
+        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
+
+  @Get('technician/sessions-teamId/:teamId')
+  // @UseGuards(JwtAuthGuard, RolesGuard)
+  // @Roles('user', 'admin', 'technician', 'teamLeader', 'superAdmin')
+  async getAllTechnicianNameWithSessionsByMainCategory(
+    @Param('teamId') teamId: string,
+  ): Promise<{
+    serviceNum: string;
+    name: string;
+    sessions: Session[];
+  } []> {
+    try {
+      return await this.technicianService.getAllTechnicianNameWithSessionsByMainCategory(teamId);
+    } catch (error) {
+      throw new HttpException(
+        error.message || 'Failed to fetch technician name with sessions by main category.',
+        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
 
   @Post('technician')
   @UseGuards(JwtAuthGuard, RolesGuard)
