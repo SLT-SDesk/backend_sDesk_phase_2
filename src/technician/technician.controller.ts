@@ -33,8 +33,8 @@ export class TechnicianController {
   ) {}
 
   @Get('technician/sessions/:serviceNum')
-  // @UseGuards(JwtAuthGuard, RolesGuard)
-  // @Roles('user', 'admin', 'technician', 'teamLeader', 'superAdmin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('user', 'admin', 'technician', 'teamLeader', 'superAdmin')
   async getTechnicianWithSessions(
     @Param('serviceNum') serviceNum: string,
   ): Promise<Technician> {
@@ -49,8 +49,8 @@ export class TechnicianController {
   }
 
   @Get('technician/sessions-teamId/:teamId')
-  // @UseGuards(JwtAuthGuard, RolesGuard)
-  // @Roles('user', 'admin', 'technician', 'teamLeader', 'superAdmin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('user', 'admin', 'technician', 'teamLeader', 'superAdmin')
   async getAllTechnicianNameWithSessionsByMainCategory(
     @Param('teamId') teamId: string,
   ): Promise<{

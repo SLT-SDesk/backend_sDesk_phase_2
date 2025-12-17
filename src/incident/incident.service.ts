@@ -16,7 +16,7 @@ import { TeamAdmin } from '../teamadmin/entities/teamadmin.entity';
 import { Technician } from '../technician/entities/technician.entity';
 import { IncidentDto } from './dto/incident.dto';
 import { IncidentHistory } from './entities/incident-history.entity';
-import { Incident, IncidentStatus } from './entities/incident.entity';
+import { Incident, IncidentStatus, IncidentPriority } from './entities/incident.entity';
 import { INCIDENT_REQUIRED_FIELDS } from './incident.interface';
 import { TechnicianPerformance } from './entities/technician-performance.entity';
 
@@ -1129,6 +1129,27 @@ export class IncidentService {
     });
   }
 
+  // ================= INCIDENT PERFORMANCE =================
+  async getIncidentPerformance(incidentNumber: string) {
+    const performance = await this.performanceRepo.findOne({
+      where: { incidentNumber },
+      select: [
+        'incidentNumber',
+        'responseTimeLabel',
+        'resolutionTimeLabel',
+      ],
+    });
+
+    if (!performance) {
+      return {
+        incidentNumber,
+        responseTimeLabel: null,
+        resolutionTimeLabel: null,
+      };
+    }
+
+    return performance;
+  }
 
 
   // ------------------- SCHEDULER FOR PENDING ASSIGNMENTS ------------------- //
@@ -2069,6 +2090,103 @@ export class IncidentService {
       throw new InternalServerErrorException(
         `Failed to retrieve incidents by main category code: ${message}`
       );
+    }
+  }
+
+  async getTechnicianStats(serviceNum: string): Promise<any> {
+    try {
+      // Get all incidents assigned to this technician
+      const allIncidents = await this.incidentRepository.find({
+        where: { handler: serviceNum },
+      });
+
+      // Count by priority
+      const critical = allIncidents.filter(inc => inc.priority === IncidentPriority.CRITICAL).length;
+      const high = allIncidents.filter(inc => inc.priority === IncidentPriority.HIGH).length;
+      const medium = allIncidents.filter(inc => inc.priority === IncidentPriority.MEDIUM).length;
+
+      // Count by status
+      const open = allIncidents.filter(inc => inc.status === IncidentStatus.OPEN).length;
+      const inProgress = allIncidents.filter(inc => inc.status === IncidentStatus.IN_PROGRESS).length;
+      const hold = allIncidents.filter(inc => inc.status === IncidentStatus.HOLD).length;
+      const closed = allIncidents.filter(inc => inc.status === IncidentStatus.CLOSED).length;
+
+      return {
+        totalIncidents: allIncidents.length,
+        byPriority: {
+          critical,
+          high,
+          medium
+        },
+        byStatus: {
+          open,
+          inProgress,
+          hold,
+          closed
+        }
+      };
+    } catch (error) {
+      this.logger.error(`Failed to fetch technician stats for ${serviceNum}:`, error);
+      throw error;
+    }
+  }
+
+  async getTechnicianPerformance(serviceNum: string): Promise<any> {
+    try {
+      // Get all performance records for this technician
+      const performanceRecords = await this.performanceRepo.find({
+        where: { incidentNumber: In(
+          (await this.incidentRepository.find({ 
+            where: { handler: serviceNum },
+            select: ['incident_number']
+          })).map(inc => inc.incident_number)
+        )}
+      });
+
+      if (performanceRecords.length === 0) {
+        return {
+          totalIncidents: 0,
+          responseOnTime: 0,
+          resolutionOnTime: 0,
+          responseOnTimePercent: 0,
+          resolutionOnTimePercent: 0,
+          avgResponseTime: 0,
+          avgResolutionTime: 0
+        };
+      }
+
+      // Calculate response time metrics
+      const responseOnTime = performanceRecords.filter(rec => 
+        rec.responseTimeLabel === 'On Time' || rec.responseTimeLabel === 'on time'
+      ).length;
+
+      const totalResponseTime = performanceRecords.reduce((sum, rec) => 
+        sum + (rec.responseTimeMinutes || 0), 0
+      );
+      const avgResponseTime = Math.round(totalResponseTime / performanceRecords.length);
+
+      // Calculate resolution time metrics
+      const resolutionOnTime = performanceRecords.filter(rec => 
+        rec.resolutionTimeLabel === 'On Time' || rec.resolutionTimeLabel === 'on time'
+      ).length;
+
+      const totalResolutionTime = performanceRecords.reduce((sum, rec) => 
+        sum + (rec.resolutionTimeMinutes || 0), 0
+      );
+      const avgResolutionTime = Math.round(totalResolutionTime / 60); // Convert to hours
+
+      return {
+        totalIncidents: performanceRecords.length,
+        responseOnTime,
+        resolutionOnTime,
+        responseOnTimePercent: Math.round((responseOnTime / performanceRecords.length) * 100),
+        resolutionOnTimePercent: Math.round((resolutionOnTime / performanceRecords.length) * 100),
+        avgResponseTime,
+        avgResolutionTime
+      };
+    } catch (error) {
+      this.logger.error(`Failed to fetch technician performance for ${serviceNum}:`, error);
+      throw error;
     }
   }
 
