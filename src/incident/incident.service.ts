@@ -1129,6 +1129,27 @@ export class IncidentService {
     });
   }
 
+  // ================= INCIDENT PERFORMANCE =================
+  async getIncidentPerformance(incidentNumber: string) {
+    const performance = await this.performanceRepo.findOne({
+      where: { incidentNumber },
+      select: [
+        'incidentNumber',
+        'responseTimeLabel',
+        'resolutionTimeLabel',
+      ],
+    });
+
+    if (!performance) {
+      return {
+        incidentNumber,
+        responseTimeLabel: null,
+        resolutionTimeLabel: null,
+      };
+    }
+
+    return performance;
+  }
 
 
   // ------------------- SCHEDULER FOR PENDING ASSIGNMENTS ------------------- //
