@@ -1,4 +1,5 @@
-import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
+import { Technician } from '../../technician/entities/technician.entity';
+import { Column, Entity, JoinColumn, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
 
 @Entity({ name: 'sessions' })
 export class Session {
@@ -13,4 +14,8 @@ export class Session {
     
     @Column({type: 'timestamp', nullable: true})
     logout_time: Date | null;
+
+    @ManyToOne(() => Technician, (technician) => technician.sessions)
+    @JoinColumn({ name: 'technician_service_number', referencedColumnName: 'serviceNum' })
+    technician: Technician;
 }
