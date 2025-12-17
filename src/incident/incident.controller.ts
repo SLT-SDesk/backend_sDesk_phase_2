@@ -31,7 +31,7 @@ import { io } from '../main';
 
 @Controller('incident')
 export class IncidentController {
-  constructor(private readonly incidentService: IncidentService) {}
+  constructor(private readonly incidentService: IncidentService) { }
 
   // Post method
   @Post('create-incident')
@@ -75,29 +75,29 @@ export class IncidentController {
         process.env.NODE_ENV === 'production'
           ? memoryStorage() // Use memory storage for Heroku
           : diskStorage({
-              destination: (req, file, cb) => {
-                const uploadsPath = join(
-                  process.cwd(),
-                  'uploads',
-                  'incident_attachments',
-                );
-                try {
-                  if (!fs.existsSync(uploadsPath)) {
-                    fs.mkdirSync(uploadsPath, { recursive: true });
-                  }
-                  cb(null, uploadsPath);
-                } catch (error) {
-                  console.error('Upload directory creation failed:', error);
-                  cb(error, uploadsPath);
+            destination: (req, file, cb) => {
+              const uploadsPath = join(
+                process.cwd(),
+                'uploads',
+                'incident_attachments',
+              );
+              try {
+                if (!fs.existsSync(uploadsPath)) {
+                  fs.mkdirSync(uploadsPath, { recursive: true });
                 }
-              },
-              filename: (req, file, cb) => {
-                const uniqueSuffix =
-                  Date.now() + '-' + Math.round(Math.random() * 1e9);
-                const filename = `${uniqueSuffix}-${file.originalname}`;
-                cb(null, filename);
-              },
-            }),
+                cb(null, uploadsPath);
+              } catch (error) {
+                console.error('Upload directory creation failed:', error);
+                cb(error, uploadsPath);
+              }
+            },
+            filename: (req, file, cb) => {
+              const uniqueSuffix =
+                Date.now() + '-' + Math.round(Math.random() * 1e9);
+              const filename = `${uniqueSuffix}-${file.originalname}`;
+              cb(null, filename);
+            },
+          }),
       limits: {
         fileSize: 1024 * 1024, // 1MB
       },
@@ -278,29 +278,29 @@ export class IncidentController {
         process.env.NODE_ENV === 'production'
           ? memoryStorage() // Use memory storage for Heroku
           : diskStorage({
-              destination: (req, file, cb) => {
-                const uploadsPath = join(
-                  process.cwd(),
-                  'uploads',
-                  'incident_attachments',
-                );
-                try {
-                  if (!fs.existsSync(uploadsPath)) {
-                    fs.mkdirSync(uploadsPath, { recursive: true });
-                  }
-                  cb(null, uploadsPath);
-                } catch (error) {
-                  console.error('Upload directory creation failed:', error);
-                  cb(error, uploadsPath);
+            destination: (req, file, cb) => {
+              const uploadsPath = join(
+                process.cwd(),
+                'uploads',
+                'incident_attachments',
+              );
+              try {
+                if (!fs.existsSync(uploadsPath)) {
+                  fs.mkdirSync(uploadsPath, { recursive: true });
                 }
-              },
-              filename: (req, file, cb) => {
-                const uniqueSuffix =
-                  Date.now() + '-' + Math.round(Math.random() * 1e9);
-                const filename = `${uniqueSuffix}-${file.originalname}`;
-                cb(null, filename);
-              },
-            }),
+                cb(null, uploadsPath);
+              } catch (error) {
+                console.error('Upload directory creation failed:', error);
+                cb(error, uploadsPath);
+              }
+            },
+            filename: (req, file, cb) => {
+              const uniqueSuffix =
+                Date.now() + '-' + Math.round(Math.random() * 1e9);
+              const filename = `${uniqueSuffix}-${file.originalname}`;
+              cb(null, filename);
+            },
+          }),
       limits: {
         fileSize: 1024 * 1024, // 1MB
       },
@@ -436,6 +436,15 @@ export class IncidentController {
     } catch (error) {
       throw error;
     }
+  }
+// Get incident history*****
+  @Get(':incident_number/performance')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('user', 'admin', 'technician', 'teamLeader', 'superAdmin')
+  async getIncidentPerformance(
+    @Param('incident_number') incident_number: string,
+  ) {
+    return this.incidentService.getIncidentPerformance(incident_number);
   }
 
   @Get(':incident_number/history')
@@ -614,29 +623,29 @@ export class IncidentController {
         process.env.NODE_ENV === 'production'
           ? memoryStorage() // Use memory storage for Heroku
           : diskStorage({
-              destination: (req, file, callback) => {
-                const uploadsPath = join(
-                  process.cwd(),
-                  'uploads',
-                  'incident_attachments',
-                );
-                try {
-                  if (!fs.existsSync(uploadsPath)) {
-                    fs.mkdirSync(uploadsPath, { recursive: true });
-                  }
-                  callback(null, uploadsPath);
-                } catch (error) {
-                  console.error('Upload directory creation failed:', error);
-                  callback(error, uploadsPath);
+            destination: (req, file, callback) => {
+              const uploadsPath = join(
+                process.cwd(),
+                'uploads',
+                'incident_attachments',
+              );
+              try {
+                if (!fs.existsSync(uploadsPath)) {
+                  fs.mkdirSync(uploadsPath, { recursive: true });
                 }
-              },
-              filename: (req, file, callback) => {
-                const uniqueSuffix =
-                  Date.now() + '-' + Math.round(Math.random() * 1e9);
-                const fileExtension = extname(file.originalname);
-                callback(null, `${uniqueSuffix}${fileExtension}`);
-              },
-            }),
+                callback(null, uploadsPath);
+              } catch (error) {
+                console.error('Upload directory creation failed:', error);
+                callback(error, uploadsPath);
+              }
+            },
+            filename: (req, file, callback) => {
+              const uniqueSuffix =
+                Date.now() + '-' + Math.round(Math.random() * 1e9);
+              const fileExtension = extname(file.originalname);
+              callback(null, `${uniqueSuffix}${fileExtension}`);
+            },
+          }),
       fileFilter: (req, file, callback) => {
         const allowedTypes = ['pdf', 'png', 'jpg', 'jpeg'];
         const fileExtension = extname(file.originalname).toLowerCase().slice(1);
