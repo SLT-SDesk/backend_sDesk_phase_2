@@ -5,6 +5,9 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { NotificationsService } from '../notifications/notifications.service';  
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, In } from 'typeorm';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, In, Repository } from 'typeorm';
@@ -823,7 +826,7 @@ export class IncidentService {
       Object.assign(incident, incidentDto);
       const updatedIncident = await this.incidentRepository.save(incident);
 
-      // ******performance-tracking logic********
+      // ******performance-tracking logic******** (data preparation)
       // helper to format minutes into "hours min" or "min"
       function formatMinutes(totalMinutes: number): string {
         if (totalMinutes < 60) {
@@ -2131,6 +2134,7 @@ export class IncidentService {
     }
   }
 
+  // induwara ayya's logic for performance metrics (data analysis for dashboard)
   async getTechnicianPerformance(serviceNum: string): Promise<any> {
     try {
       // Get all performance records for this technician

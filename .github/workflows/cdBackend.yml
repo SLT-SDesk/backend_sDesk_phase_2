@@ -1,0 +1,63 @@
+name: Deploy SDesk Backend (Testing)
+
+on:
+  push:
+    branches:
+      - testing
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: ⬇️ Checkout code
+        uses: actions/checkout@v4
+
+      - name: 🛠️ Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 🚀 Upload Backend Code to Server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 3251
+          source: "./"                  #Update 3/12/2025 Changed from backend_sDesk_phase_2 to ./
+          target: "/home/${{ secrets.SSH_USERNAME }}/sdesk_backend_tmp/"
+          strip_components: 1
+
+      - name: 🔄 Deploy Backend & Restart PM2
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 3251
+          script: |
+            echo "Starting SDesk Backend Deployment..."
+
+            mkdir -p ~/sdesk_backend_tmp
+
+            echo "Removing old backend code..."
+            sudo rm -rf /var/www/sdesk_new/backend_sDesk_phase_2/*
+
+            echo "Copying new backend..."
+            sudo cp -r ~/sdesk_backend_tmp/* /var/www/sdesk_new/backend_sDesk_phase_2/
+
+            echo "Installing backend dependencies..."
+            cd /var/www/sdesk_new/backend_sDesk_phase_2
+            rm -rf package-lock.json node_modules  #Update 3/12/2025 added "rm -rf package-lock.json node_modules" to ensure clean install
+            npm install                     #Update 3/12/2025 remove --production to install all dependencies
+            npm run build                   #Update 3/12/2025 add npm run build
+
+            echo "Restarting Backend using PM2..."
+            sudo pm2 status     #update 3/12/2025 added to check pm2 status
+            sudo pm2 delete sdesk || true
+            sudo pm2 start dist/main.js --name sdesk --update-env  #Update 3/12/2025 changed from sdesk-backend to sdesk , Changed dist/main.js , changed backend starting process
+            pm2 save
+
+            echo "Backend Deployment Completed Successfully."
