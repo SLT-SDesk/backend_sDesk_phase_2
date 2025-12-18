@@ -1,23 +1,27 @@
 import {
-  Injectable,
   BadRequestException,
+  Injectable,
   InternalServerErrorException,
-  NotFoundException,
   Logger,
+  NotFoundException,
 } from '@nestjs/common';
 import { NotificationsService } from '../notifications/notifications.service';  
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { Incident, IncidentStatus } from './entities/incident.entity';
-import { IncidentDto } from './dto/incident.dto';
-import { INCIDENT_REQUIRED_FIELDS } from './incident.interface';
-import { Technician } from '../technician/entities/technician.entity';
-import { IncidentHistory } from './entities/incident-history.entity';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Between, In, Repository } from 'typeorm';
 import { CategoryItem } from '../Categories/Entities/Categories.entity';
+import { io } from '../main';
+import { NotificationsService } from '../notifications/notifications.service';
 import { SLTUser } from '../sltusers/entities/sltuser.entity';
 import { TeamAdmin } from '../teamadmin/entities/teamadmin.entity';
-import { io } from '../main';
+import { Technician } from '../technician/entities/technician.entity';
+import { IncidentDto } from './dto/incident.dto';
+import { IncidentHistory } from './entities/incident-history.entity';
+import { Incident, IncidentStatus, IncidentPriority } from './entities/incident.entity';
+import { INCIDENT_REQUIRED_FIELDS } from './incident.interface';
+import { TechnicianPerformance } from './entities/technician-performance.entity';
 
 @Injectable()
 export class IncidentService {
@@ -40,7 +44,11 @@ export class IncidentService {
     private sltUserRepository: Repository<SLTUser>,
     @InjectRepository(TeamAdmin)
     private teamAdminRepository: Repository<TeamAdmin>,
-  ) {}
+    private notificationsService: NotificationsService,
+    @InjectRepository(TechnicianPerformance)
+    private readonly performanceRepo: Repository<TechnicianPerformance>, //
+
+  ) { }
 
   // Helper method to get display_name from slt_users table by serviceNum
   private async getDisplayNameByServiceNum(serviceNum: string): Promise<string> {
@@ -55,6 +63,32 @@ export class IncidentService {
     }
   }
 
+  // $$$$$
+  private async generateIncidentNumber(): Promise<string> {
+    const now = new Date();
+
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+
+    const dateCode = `${year}.${month}.${day}`;
+
+    // Convert to YYYY-MM-DD for update_on field
+    const todayDateString = `${year}-${month}-${day}`;
+
+    // Count incidents where update_on = today's date
+    const todayCount = await this.incidentRepository.count({
+      where: {
+        update_on: todayDateString,
+      },
+    });
+
+    const sequence = String(todayCount + 1).padStart(4, '0');
+
+    return `IN${dateCode}.${sequence}`;
+  }
+
+
   async create(incidentDto: IncidentDto): Promise<Incident> {
     try {
       for (const field of INCIDENT_REQUIRED_FIELDS) {
@@ -63,15 +97,23 @@ export class IncidentService {
         }
       }
 
-      const sequenceResult = await this.incidentRepository.query(
-        "SELECT nextval('incident_number_seq') as value",
-      );
+      //const sequenceResult = await this.incidentRepository.query(
+      //  "SELECT nextval('incident_number_seq') as value",
+      //);
+
       // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-      const nextId = sequenceResult[0]?.value;
-      if (!nextId) {
-        throw new BadRequestException('Failed to generate incident number');
-      }
-      const incidentNumber = `IN${nextId}`;
+      //const nextId = sequenceResult[0]?.value;
+      //if (!nextId) {
+      //throw new BadRequestException('Failed to generate incident number');
+      //}
+      //const incidentNumber = `IN${nextId}`;
+
+      // $$$$$-- new change Set the date for update_on so daily counting works
+      incidentDto.update_on = new Date().toISOString().split('T')[0];
+
+      //$$$$4 new change NEW format eka(INYYYY.MM.DD.XXXX)
+      const incidentNumber = await this.generateIncidentNumber();
+
 
       // --- Team-based Technician Assignment Logic ---
       // Step 1: Find CategoryItem by name (incidentDto.category is the category name)
@@ -123,12 +165,12 @@ export class IncidentService {
           if (availableTechnicians.length > 0) {
             // Create a temporary incident object for skill checking
             const tempIncident = { category: incidentDto.category } as Incident;
-            
+
             // Filter technicians based on sub-category skills first
             const skilledTechnicians: Technician[] = [];
-            
+
             this.logger.log(`[SUB-CATEGORY-ASSIGNMENT] Checking skills for ${availableTechnicians.length} technicians for sub-category '${subCategoryName}' (category: ${incidentDto.category})`);
-            
+
             for (const tech of availableTechnicians) {
               const isSkilled = await this.isTechnicianSkilledForIncident(tech, tempIncident);
               if (isSkilled) {
@@ -138,23 +180,23 @@ export class IncidentService {
                 this.logger.log(`[SUB-CATEGORY-ASSIGNMENT] Technician ${tech.serviceNum} is NOT skilled for sub-category '${subCategoryName}'`);
               }
             }
-            
+
             this.logger.log(`[SUB-CATEGORY-ASSIGNMENT] Found ${skilledTechnicians.length} skilled technicians out of ${availableTechnicians.length} available for sub-category '${subCategoryName}'`);
-            
+
             if (skilledTechnicians.length > 0) {
               // Implement hybrid round-robin assignment with workload consideration on skilled technicians
               const teamKey = `${team}_${tier}_${subCategoryName}`; // More specific key for round-robin tracking
-              
+
               if (skilledTechnicians.length === 1) {
                 // If only one skilled technician available, check their workload
                 const singleTech = skilledTechnicians[0];
                 const activeWorkload = await this.incidentRepository.count({
-                  where: { 
-                    handler: singleTech.serviceNum, 
+                  where: {
+                    handler: singleTech.serviceNum,
                     status: In([IncidentStatus.OPEN, IncidentStatus.HOLD, IncidentStatus.IN_PROGRESS])
                   },
                 });
-                
+
                 // Only assign if technician has less than 3 active incidents
                 if (activeWorkload < 3) {
                   assignedTechnician = singleTech;
@@ -167,17 +209,17 @@ export class IncidentService {
                 const currentIndex = this.teamAssignmentIndex.get(teamKey) || 0;
                 let attemptCount = 0;
                 let selectedIndex = currentIndex;
-                
+
                 // Try round-robin starting from current index
                 while (attemptCount < skilledTechnicians.length) {
                   const candidateTech = skilledTechnicians[selectedIndex];
                   const activeWorkload = await this.incidentRepository.count({
-                    where: { 
-                      handler: candidateTech.serviceNum, 
+                    where: {
+                      handler: candidateTech.serviceNum,
                       status: In([IncidentStatus.OPEN, IncidentStatus.HOLD, IncidentStatus.IN_PROGRESS])
                     },
                   });
-                  
+
                   // Check if this technician has capacity
                   if (activeWorkload < 3) {
                     assignedTechnician = candidateTech;
@@ -187,12 +229,12 @@ export class IncidentService {
                     this.logger.log(`[SUB-CATEGORY-ASSIGNMENT] Round-robin assigned to skilled technician ${candidateTech.serviceNum} with workload ${activeWorkload}/3 (index: ${selectedIndex})`);
                     break;
                   }
-                  
+
                   // Move to next technician in round-robin
                   selectedIndex = (selectedIndex + 1) % skilledTechnicians.length;
                   attemptCount++;
                 }
-                
+
                 if (!assignedTechnician) {
                   this.logger.log(`[SUB-CATEGORY-ASSIGNMENT] All ${skilledTechnicians.length} skilled technicians for sub-category '${subCategoryName}' are at max capacity (3 incidents each)`);
                 }
@@ -219,7 +261,7 @@ export class IncidentService {
         });
       } else {
         // If no technician is found, create the incident as PENDING_ASSIGNMENT
-       
+
         incident = this.incidentRepository.create({
           ...incidentDto,
           incident_number: incidentNumber,
@@ -229,6 +271,14 @@ export class IncidentService {
       }
 
       const savedIncident = await this.incidentRepository.save(incident);
+
+      // Emit socket events for newly created incident (notify assigned tech and broadcast)
+      try {
+        this.emitIncidentSocketEvents(savedIncident, 'created');
+        this.logger.log(`[SOCKET] Emitted created event for incident ${savedIncident.incident_number}`);
+      } catch (err) {
+        this.logger.error(`[SOCKET] Failed to emit created event for incident ${savedIncident.incident_number}: ${err?.message || err}`);
+      }
 
       // Get display names for incident history
       const assignedToDisplayName = savedIncident.handler
@@ -262,6 +312,8 @@ export class IncidentService {
       );
     }
   }
+
+
   async getAssignedToMe(handler: string): Promise<Incident[]> {
     try {
       if (!handler) {
@@ -370,6 +422,11 @@ export class IncidentService {
     incidentDto: IncidentDto,
   ): Promise<Incident> {
     try {
+
+      //  $$$$$$$$-----disable team admin approval completely
+      incidentDto.assignForTeamAdmin = false;
+
+
       const incident = await this.incidentRepository.findOne({
         where: { incident_number },
       });
@@ -396,8 +453,10 @@ export class IncidentService {
 
       // Track if this is a status change to CLOSED or a transfer operation
       const isClosingIncident = incidentDto.status === IncidentStatus.CLOSED && originalStatus !== IncidentStatus.CLOSED;
-      const isTransferOperation = (incidentDto.automaticallyAssignForTier2 || incidentDto.assignForTeamAdmin) && 
-                                 incidentDto.handler && incidentDto.handler !== originalHandler;
+
+      //---------------------------------------------- this one -------
+      const isTransferOperation = (incidentDto.automaticallyAssignForTier2 || incidentDto.assignForTeamAdmin) &&
+        incidentDto.handler && incidentDto.handler !== originalHandler;
 
       this.logger.log(`[UPDATE] Incident ${incident_number}: isClosing=${isClosingIncident}, isTransfer=${isTransferOperation}`);
 
@@ -419,16 +478,16 @@ export class IncidentService {
         }
 
         const mainCategoryId = categoryItem.subCategory?.mainCategory?.id;
-        if (!mainCategoryId) {
+        const teamName = categoryItem.subCategory?.mainCategory?.name;
+        const subCategoryName = categoryItem.subCategory?.name;
+
+        if (!mainCategoryId && !teamName) {
           console.error(`[IncidentService] No team found for new category '${incidentDto.category}' for reassignment.`);
           throw new BadRequestException(
             `No team found for new category '${incidentDto.category}' for reassignment.`,
           );
         }
 
-        const teamName = categoryItem.subCategory?.mainCategory?.name;
-
-        const subCategoryName = categoryItem.subCategory?.name;
         if (!subCategoryName) {
           console.error(`[IncidentService] No sub-category found for new category '${incidentDto.category}' for reassignment.`);
           throw new BadRequestException(
@@ -451,12 +510,12 @@ export class IncidentService {
             if (availableTechnicians.length > 0) {
               // Create a temporary incident object for skill checking with new category
               const tempIncident = { category: incidentDto.category } as Incident;
-              
+
               // Filter technicians based on sub-category skills first
               const skilledTechnicians: Technician[] = [];
-              
+
               this.logger.log(`[CATEGORY-CHANGE-SKILL] Checking skills for ${availableTechnicians.length} technicians for sub-category '${subCategoryName}' (new category: ${incidentDto.category})`);
-              
+
               for (const tech of availableTechnicians) {
                 const isSkilled = await this.isTechnicianSkilledForIncident(tech, tempIncident);
                 if (isSkilled) {
@@ -466,23 +525,23 @@ export class IncidentService {
                   this.logger.log(`[CATEGORY-CHANGE-SKILL] Technician ${tech.serviceNum} is NOT skilled for sub-category '${subCategoryName}'`);
                 }
               }
-              
+
               this.logger.log(`[CATEGORY-CHANGE-SKILL] Found ${skilledTechnicians.length} skilled technicians out of ${availableTechnicians.length} available for sub-category '${subCategoryName}'`);
-              
+
               if (skilledTechnicians.length > 0) {
                 // Implement hybrid round-robin assignment with workload consideration on skilled technicians
                 const teamKey = `${team}_${tier}_${subCategoryName}_update`; // More specific key for round-robin tracking
-                
+
                 if (skilledTechnicians.length === 1) {
                   // If only one skilled technician available, check their workload
                   const singleTech = skilledTechnicians[0];
                   const activeWorkload = await this.incidentRepository.count({
-                    where: { 
-                      handler: singleTech.serviceNum, 
+                    where: {
+                      handler: singleTech.serviceNum,
                       status: In([IncidentStatus.OPEN, IncidentStatus.HOLD, IncidentStatus.IN_PROGRESS])
                     },
                   });
-                  
+
                   // Only assign if technician has less than 3 active incidents
                   if (activeWorkload < 3) {
                     assignedTechnician = singleTech;
@@ -495,17 +554,17 @@ export class IncidentService {
                   const currentIndex = this.teamAssignmentIndex.get(teamKey) || 0;
                   let attemptCount = 0;
                   let selectedIndex = currentIndex;
-                  
+
                   // Try round-robin starting from current index
                   while (attemptCount < skilledTechnicians.length) {
                     const candidateTech = skilledTechnicians[selectedIndex];
                     const activeWorkload = await this.incidentRepository.count({
-                      where: { 
-                        handler: candidateTech.serviceNum, 
+                      where: {
+                        handler: candidateTech.serviceNum,
                         status: In([IncidentStatus.OPEN, IncidentStatus.HOLD, IncidentStatus.IN_PROGRESS])
                       },
                     });
-                    
+
                     // Check if this technician has capacity
                     if (activeWorkload < 3) {
                       assignedTechnician = candidateTech;
@@ -515,12 +574,12 @@ export class IncidentService {
                       this.logger.log(`[CATEGORY-CHANGE-SKILL] Round-robin assigned to skilled technician ${candidateTech.serviceNum} with workload ${activeWorkload}/3 (index: ${selectedIndex})`);
                       break;
                     }
-                    
+
                     // Move to next technician in round-robin
                     selectedIndex = (selectedIndex + 1) % skilledTechnicians.length;
                     attemptCount++;
                   }
-                  
+
                   if (!assignedTechnician) {
                     this.logger.log(`[CATEGORY-CHANGE-SKILL] All ${skilledTechnicians.length} skilled technicians for sub-category '${subCategoryName}' are at max capacity (3 incidents each)`);
                   }
@@ -542,7 +601,7 @@ export class IncidentService {
           incidentDto.status = IncidentStatus.PENDING_ASSIGNMENT; // Set to pending status
           incidentDto.automaticallyAssignForTier2 = false;
           incidentDto.assignForTeamAdmin = false;
-          
+
           this.logger.log(`[CATEGORY-CHANGE-PENDING] Incident ${incident_number} set to pending assignment due to category change to '${incidentDto.category}' - no active technicians available`);
         } else {
           // Track the reassigned technician for socket events
@@ -557,26 +616,26 @@ export class IncidentService {
       // --- Auto-assign Tier2 technician if requested ---
       if (incidentDto.automaticallyAssignForTier2) {
         console.log('🔍 Starting Tier2 assignment process...');
-        
+
         // Find CategoryItem by name (category)
         const categoryItem = await this.categoryItemRepository.findOne({
           where: { name: incidentDto.category || incident.category },
           relations: ['subCategory', 'subCategory.mainCategory'],
         });
-        
+
         if (!categoryItem) {
           throw new BadRequestException(
             `Category '${incidentDto.category || incident.category}' not found`,
           );
         }
-        
+
         const mainCategoryId = categoryItem.subCategory?.mainCategory?.id;
         const teamName = categoryItem.subCategory?.mainCategory?.name;
-        
+
         // Try to assign to active Tier2 technician
         const tier2Result = await this.tryAssignToTier2Technician(
-          mainCategoryId, 
-          teamName, 
+          mainCategoryId,
+          teamName,
           incident.category
         );
 
@@ -590,14 +649,14 @@ export class IncidentService {
           console.log('📋 No active Tier2 technician found. Adding to PENDING_TIER2_ASSIGNMENT queue...');
           incidentDto.status = IncidentStatus.PENDING_TIER2_ASSIGNMENT;
           incidentDto.handler = null; // Clear handler since no one is assigned yet
-          
+
           this.logger.log(`[TIER2-PENDING] Incident ${incident_number} added to Tier2 pending queue for team '${mainCategoryId || teamName}'`);
         }
       }
 
-      // --- Auto-assign Team Admin if requested ---
+      // $$$$$$$$$$$$--- Auto-assign Team Admin if requested ---(this is the block causing admin behaviour)
       if (incidentDto.assignForTeamAdmin) {
-        
+
 
         const currentHandler = incident.handler;
         if (!currentHandler) {
@@ -617,7 +676,7 @@ export class IncidentService {
           );
         }
 
-        
+
 
         // Find team admin for the technician's team using both team and teamId fields
         const teamIdentifiers = [
@@ -625,13 +684,13 @@ export class IncidentService {
           currentTechnician.teamId,
         ].filter(Boolean);
 
-      
+
 
         let teamAdminTemp: TeamAdmin | null = null;
 
         for (const teamIdentifier of teamIdentifiers) {
-         
-          
+
+
           teamAdminTemp = await this.teamAdminRepository.findOne({
             where: [
               { teamId: teamIdentifier, active: true },
@@ -640,7 +699,7 @@ export class IncidentService {
           });
 
           if (teamAdminTemp) {
-       
+
             break;
           }
         }
@@ -650,8 +709,8 @@ export class IncidentService {
           const allTeamAdmins = await this.teamAdminRepository.find({
             where: { active: true },
           });
-        
-          
+
+
           throw new BadRequestException(
             `No active team admin found for technician's team (${teamIdentifiers.join(', ')}). Available team admins: ${allTeamAdmins.map(ta => `${ta.serviceNumber} (team: ${ta.teamName})`).join(', ')}`,
           );
@@ -662,25 +721,25 @@ export class IncidentService {
 
         // Assign the incident to the team admin
         incidentDto.handler = teamAdmin.serviceNumber;
- 
+
       }
 
       // --- Manual Handler Assignment Validation ---
       // Check if admin is manually assigning to a different handler (not through automatic assignment)
-      const isManualHandlerAssignment = incidentDto.handler && 
-                                       incidentDto.handler !== originalHandler && 
-                                       !incidentDto.automaticallyAssignForTier2 && 
-                                       !incidentDto.assignForTeamAdmin &&
-                                       !categoryChanged; // Not a category-based reassignment
+      const isManualHandlerAssignment = incidentDto.handler &&
+        incidentDto.handler !== originalHandler &&
+        !incidentDto.automaticallyAssignForTier2 &&
+        !incidentDto.assignForTeamAdmin &&
+        !categoryChanged; // Not a category-based reassignment
 
       if (isManualHandlerAssignment) {
         this.logger.log(`[MANUAL-ASSIGNMENT] Admin is manually assigning incident ${incident_number} to handler ${incidentDto.handler}`);
-        
+
         // Ensure handler is not null/undefined
         if (!incidentDto.handler) {
           throw new BadRequestException('Handler is required for manual assignment');
         }
-        
+
         // Get the technician being assigned to
         const targetTechnician = await this.technicianRepository.findOne({
           where: { serviceNum: incidentDto.handler, active: true },
@@ -695,21 +754,21 @@ export class IncidentService {
         // Check if the technician is skilled for the incident's category/sub-category
         const currentCategory = incidentDto.category || incident.category;
         const tempIncident = { category: currentCategory } as Incident;
-        
+
         const isSkilled = await this.isTechnicianSkilledForIncident(targetTechnician, tempIncident);
-        
+
         if (!isSkilled) {
           // Get category hierarchy for error message
           const categoryItem = await this.categoryItemRepository.findOne({
             where: { name: currentCategory },
             relations: ['subCategory', 'subCategory.mainCategory'],
           });
-          
+
           const subCategoryName = categoryItem?.subCategory?.name || 'Unknown';
           const mainCategoryName = categoryItem?.subCategory?.mainCategory?.name || 'Unknown';
-          
+
           this.logger.warn(`[MANUAL-ASSIGNMENT] Technician ${incidentDto.handler} is not skilled for category '${currentCategory}' (sub-category: ${subCategoryName})`);
-          
+
           throw new BadRequestException(
             `Technician ${targetTechnician.name} (${incidentDto.handler}) is not skilled to handle incidents in sub-category '${subCategoryName}' (Category: ${currentCategory}, Team: ${mainCategoryName}). Please assign to a technician with appropriate skills.`
           );
@@ -717,15 +776,15 @@ export class IncidentService {
 
         // Check workload capacity
         const activeWorkload = await this.incidentRepository.count({
-          where: { 
-            handler: targetTechnician.serviceNum, 
+          where: {
+            handler: targetTechnician.serviceNum,
             status: In([IncidentStatus.OPEN, IncidentStatus.HOLD, IncidentStatus.IN_PROGRESS])
           },
         });
 
         if (activeWorkload >= 3) {
           this.logger.warn(`[MANUAL-ASSIGNMENT] Technician ${incidentDto.handler} is at max capacity (${activeWorkload}/3)`);
-          
+
           throw new BadRequestException(
             `Technician ${targetTechnician.name} (${incidentDto.handler}) is already at maximum capacity (${activeWorkload}/3 active incidents). Please assign to a technician with available capacity.`
           );
@@ -738,11 +797,11 @@ export class IncidentService {
       const handlerIdentifier = incidentDto.handler || incident.handler;
       const assignedToDisplayName = handlerIdentifier
         ? await this.getDisplayNameByServiceNum(handlerIdentifier)
-        : incidentDto.status === IncidentStatus.PENDING_TIER2_ASSIGNMENT 
+        : incidentDto.status === IncidentStatus.PENDING_TIER2_ASSIGNMENT
           ? 'Pending Tier2 Assignment'
           : incidentDto.status === IncidentStatus.PENDING_ASSIGNMENT
-          ? 'Pending Assignment'
-          : 'N/A';
+            ? 'Pending Assignment'
+            : 'N/A';
       const updatedByDisplayName = await this.getDisplayNameByServiceNum(incidentDto.update_by || incident.update_by);
 
       // --- IncidentHistory entry ---
@@ -751,11 +810,11 @@ export class IncidentService {
       history.status = incidentDto.status || incident.status;
       history.assignedTo = assignedToDisplayName;
       history.updatedBy = updatedByDisplayName;
-      history.comments = incidentDto.status === IncidentStatus.PENDING_TIER2_ASSIGNMENT 
+      history.comments = incidentDto.status === IncidentStatus.PENDING_TIER2_ASSIGNMENT
         ? 'Incident moved to Tier2 pending queue - no active Tier2 technicians available'
         : incidentDto.status === IncidentStatus.PENDING_ASSIGNMENT
-        ? 'Incident moved to pending queue - no active technicians available for the new category'
-        : incidentDto.description || incident.description || '';
+          ? 'Incident moved to pending queue - no active technicians available for the new category'
+          : incidentDto.description || incident.description || '';
       history.category = incidentDto.category || incident.category;
       history.location = incidentDto.location || incident.location;
       history.attachment = incidentDto.attachmentFilename || '';
@@ -766,6 +825,106 @@ export class IncidentService {
       // Update the incident
       Object.assign(incident, incidentDto);
       const updatedIncident = await this.incidentRepository.save(incident);
+
+      // ******performance-tracking logic******** (data preparation)
+      // helper to format minutes into "hours min" or "min"
+      function formatMinutes(totalMinutes: number): string {
+        if (totalMinutes < 60) {
+          return `${totalMinutes}m`;
+        }
+        const hours = Math.floor(totalMinutes / 60);
+        const minutes = totalMinutes % 60;
+        return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+      }
+      // Get created time from first incident history (for response time)
+      const firstHistory = await this.incidentHistoryRepository.findOne({
+        where: { incidentNumber: incident_number },
+        order: { updatedOn: 'ASC' },
+      });
+
+      const createdAt = firstHistory?.updatedOn;
+
+      // response time
+      // Open to In Progress
+      if (
+        incidentDto.status === IncidentStatus.IN_PROGRESS &&
+        originalStatus !== IncidentStatus.IN_PROGRESS &&
+        createdAt
+      ) {
+        const now = new Date();
+
+        const diffMinutes = Math.floor(
+          (now.getTime() - createdAt.getTime()) / 60000
+        );
+
+        const formatted = formatMinutes(diffMinutes);
+        //Save response time into DB
+        await this.performanceRepo.save({
+          incidentNumber: incident.incident_number,
+
+          // NEW FIELDS (STEP 2 GOAL)
+          responseTimeMinutes: diffMinutes,
+          responseTimeLabel: formatMinutes(diffMinutes),
+
+          // OLD FIELD (KEEP TEMPORARILY)
+          responseTime: formatMinutes(diffMinutes),
+        });
+
+      }
+
+      // resolve time
+      // In Progress to closed
+      if (
+        incidentDto.status === IncidentStatus.CLOSED &&
+        originalStatus !== IncidentStatus.CLOSED
+      ) {
+        // Get the "In Progress" timestamp
+        const inProgress = await this.incidentHistoryRepository.findOne({
+          where: {
+            incidentNumber: incident_number,
+            status: IncidentStatus.IN_PROGRESS,
+          },
+          order: { updatedOn: 'ASC' },
+        });
+        //If we found IN_PROGRESS timestamp, calculate difference
+        if (inProgress) {
+          const inProgressTime = new Date(inProgress.updatedOn);
+          const now = new Date();
+
+          const diffMinutes = Math.floor(
+            (now.getTime() - inProgressTime.getTime()) / 60000
+          );
+
+          const formatted = formatMinutes(diffMinutes);
+          //Save or update record
+          let record = await this.performanceRepo.findOne({
+            where: { incidentNumber: incident.incident_number },
+          });
+
+          if (record) {
+            record.resolutionTimeMinutes = diffMinutes;
+            record.resolutionTimeLabel = formatMinutes(diffMinutes);
+
+            // KEEP OLD FIELD TEMPORARILY
+            record.resolveTime = formatMinutes(diffMinutes);
+
+            await this.performanceRepo.save(record);
+          } else {
+            await this.performanceRepo.save({
+              incidentNumber: incident.incident_number,
+
+              // NEW FIELDS
+              resolutionTimeMinutes: diffMinutes,
+              resolutionTimeLabel: formatMinutes(diffMinutes),
+
+              // OLD FIELD
+              resolveTime: formatMinutes(diffMinutes),
+            });
+          }
+
+        }
+      }
+      //************technician performance tracking ending */
 
       // --- EMIT SOCKET EVENTS FOR TRANSFERS ---
       // Check if this was a Tier2 transfer, team admin assignment, category-based reassignment, or manual reassignment
@@ -797,10 +956,10 @@ export class IncidentService {
       // Only trigger if this was a closing or transfer operation
       if (isClosingIncident || isTransferOperation) {
         const technicianServiceNum = originalHandler; // Use the original handler who closed/transferred
-        
+
         if (technicianServiceNum) {
           this.logger.log(`[AUTO-ASSIGNMENT] Triggering assignment for technician ${technicianServiceNum} after ${isClosingIncident ? 'closing' : 'transferring'} incident ${incident_number}`);
-          
+
           // Trigger assignment in background (don't wait for it)
           setImmediate(() => {
             this.tryAssignNewIncidentToTechnician(technicianServiceNum, isClosingIncident ? 'CLOSED' : 'TRANSFERRED')
@@ -898,7 +1057,7 @@ export class IncidentService {
       // Helper function to check if an incident's update_on matches today
       const isTodayIncident = (incident: Incident) => {
         if (!incident.update_on) return false;
-        
+
         // Handle different date formats
         let incidentDate: string = incident.update_on;
         if (typeof incidentDate === 'string') {
@@ -907,7 +1066,7 @@ export class IncidentService {
             incidentDate = incidentDate.split('T')[0];
           }
         }
-        
+
         return incidentDate === today;
       };
 
@@ -973,12 +1132,33 @@ export class IncidentService {
     });
   }
 
+  // ================= INCIDENT PERFORMANCE =================
+  async getIncidentPerformance(incidentNumber: string) {
+    const performance = await this.performanceRepo.findOne({
+      where: { incidentNumber },
+      select: [
+        'incidentNumber',
+        'responseTimeLabel',
+        'resolutionTimeLabel',
+      ],
+    });
+
+    if (!performance) {
+      return {
+        incidentNumber,
+        responseTimeLabel: null,
+        resolutionTimeLabel: null,
+      };
+    }
+
+    return performance;
+  }
 
 
   // ------------------- SCHEDULER FOR PENDING ASSIGNMENTS ------------------- //
 
 
-  @Cron('0 0 * * *') // Daily at midnight (00:00)
+  @Cron(CronExpression.EVERY_30_SECONDS) // Daily at midnight (00:00)
   async handlePendingAssignments(): Promise<number> {
     this.logger.log('Running daily scheduled task to assign pending incidents...');
 
@@ -1078,9 +1258,9 @@ export class IncidentService {
 
     // Filter technicians based on sub-category skills first
     const skilledTechnicians: Technician[] = [];
-    
+
     this.logger.log(`[PENDING-SKILL-CHECK] Checking skills for ${availableTechnicians.length} technicians for sub-category '${subCategoryName}' (incident: ${incident.incident_number})`);
-    
+
     for (const tech of availableTechnicians) {
       const isSkilled = await this.isTechnicianSkilledForIncident(tech, incident);
       if (isSkilled) {
@@ -1090,9 +1270,9 @@ export class IncidentService {
         this.logger.log(`[PENDING-SKILL-CHECK] Technician ${tech.serviceNum} is NOT skilled for sub-category '${subCategoryName}'`);
       }
     }
-    
+
     this.logger.log(`[PENDING-SKILL-CHECK] Found ${skilledTechnicians.length} skilled technicians out of ${availableTechnicians.length} available for sub-category '${subCategoryName}'`);
-    
+
     if (skilledTechnicians.length === 0) {
       this.logger.log(
         `No skilled technicians found for sub-category '${subCategoryName}' on incident ${incident.incident_number}. Incident remains pending.`,
@@ -1103,17 +1283,17 @@ export class IncidentService {
     // --- Enhanced Round-robin load balancing with workload consideration on skilled technicians ---
     let selectedTechnician: Technician | null = null;
     const teamKey = `${teamId}_Tier1_${subCategoryName}_pending`; // Unique key for pending assignments
-    
+
     if (skilledTechnicians.length === 1) {
       // Single skilled technician - check workload only
       const singleTech = skilledTechnicians[0];
       const activeWorkload = await this.incidentRepository.count({
-        where: { 
-          handler: singleTech.serviceNum, 
+        where: {
+          handler: singleTech.serviceNum,
           status: In([IncidentStatus.OPEN, IncidentStatus.HOLD, IncidentStatus.IN_PROGRESS])
         },
       });
-      
+
       if (activeWorkload < 3) {
         selectedTechnician = singleTech;
         this.logger.log(`[PENDING-ASSIGNMENT] Single skilled technician ${singleTech.serviceNum} available with workload ${activeWorkload}/3`);
@@ -1125,17 +1305,17 @@ export class IncidentService {
       const currentIndex = this.teamAssignmentIndex.get(teamKey) || 0;
       let attemptCount = 0;
       let selectedIndex = currentIndex;
-      
+
       // Try round-robin starting from current index
       while (attemptCount < skilledTechnicians.length) {
         const candidateTech = skilledTechnicians[selectedIndex];
         const activeWorkload = await this.incidentRepository.count({
-          where: { 
-            handler: candidateTech.serviceNum, 
+          where: {
+            handler: candidateTech.serviceNum,
             status: In([IncidentStatus.OPEN, IncidentStatus.HOLD, IncidentStatus.IN_PROGRESS])
           },
         });
-        
+
         // Check if this technician has capacity
         if (activeWorkload < 3) {
           selectedTechnician = candidateTech;
@@ -1145,12 +1325,12 @@ export class IncidentService {
           this.logger.log(`[PENDING-ASSIGNMENT] Round-robin assigned to skilled technician ${candidateTech.serviceNum} with workload ${activeWorkload}/3 (index: ${selectedIndex})`);
           break;
         }
-        
+
         // Move to next technician in round-robin
         selectedIndex = (selectedIndex + 1) % skilledTechnicians.length;
         attemptCount++;
       }
-      
+
       if (!selectedTechnician) {
         this.logger.log(`[PENDING-ASSIGNMENT] All ${skilledTechnicians.length} skilled technicians for sub-category '${subCategoryName}' are at max capacity (3 incidents each)`);
       }
@@ -1188,7 +1368,7 @@ export class IncidentService {
       // Get all technician's categories (from cat1, cat2, cat3, cat4 fields)
       const technicianCategories = [
         technician.cat1,
-        technician.cat2, 
+        technician.cat2,
         technician.cat3,
         technician.cat4
       ].filter(cat => cat && cat.trim() !== ''); // Remove null/empty categories
@@ -1221,8 +1401,8 @@ export class IncidentService {
         .filter(cat => cat && cat.trim() !== '');
 
       // Check if any of technician's categories match the incident's category hierarchy
-      const isSkilled = technicianCategories.some(techCat => 
-        matchableCategories.some(incCat => 
+      const isSkilled = technicianCategories.some(techCat =>
+        matchableCategories.some(incCat =>
           techCat.toLowerCase().trim() === incCat.toLowerCase().trim()
         )
       );
@@ -1247,8 +1427,8 @@ export class IncidentService {
 
     // Check technician's current active workload
     const currentActiveWorkload = await this.incidentRepository.count({
-      where: { 
-        handler: technicianServiceNum, 
+      where: {
+        handler: technicianServiceNum,
         status: In([IncidentStatus.OPEN, IncidentStatus.HOLD, IncidentStatus.IN_PROGRESS])
       },
     });
@@ -1283,9 +1463,9 @@ export class IncidentService {
         return; // Exit after assigning the first suitable incident
       }
     }
-    
+
     this.logger.log(`[AUTO-ASSIGNMENT] No skill-matched pending incidents found in the team queue for technician ${technicianServiceNum}.`);
-    
+
     // Fallback logic from original code: try to find any pending incident (oldest first).
     // We will retain this but add the skill check.
     const anyPendingIncident = await this.incidentRepository.findOne({
@@ -1316,9 +1496,9 @@ export class IncidentService {
   private async findPendingIncidentsForTechnician(technician: Technician): Promise<Incident[]> {
     // Get all category items for technician's team
     const teamIdentifiers = [technician.team, technician.teamId].filter(Boolean);
-    
+
     let categoryItems: CategoryItem[] = [];
-    
+
     for (const teamId of teamIdentifiers) {
       const items = await this.categoryItemRepository
         .createQueryBuilder('categoryItem')
@@ -1329,12 +1509,12 @@ export class IncidentService {
           teamName: teamId,
         })
         .getMany();
-      
+
       categoryItems.push(...items);
     }
 
     // Remove duplicates
-    categoryItems = categoryItems.filter((item, index, self) => 
+    categoryItems = categoryItems.filter((item, index, self) =>
       index === self.findIndex(i => i.name === item.name)
     );
 
@@ -1345,7 +1525,7 @@ export class IncidentService {
 
     const categoryNames = categoryItems.map(item => item.name);
     const categoryCodes = categoryItems.map(item => item.category_code);
-    
+
     this.logger.log(`[AUTO-ASSIGNMENT] Looking for pending incidents in categories: ${categoryNames.join(', ')}`);
 
     // Find pending incidents for these categories, prioritizing oldest first
@@ -1360,94 +1540,209 @@ export class IncidentService {
       .getMany();
 
     this.logger.log(`[AUTO-ASSIGNMENT] Found ${pendingIncidents.length} pending incidents for technician's categories (ordered by update time)`);
-    
+
     return pendingIncidents;
   }
 
   /**
    * Helper method to emit socket events for incident updates
    */
-  private emitIncidentSocketEvents(incident: Incident, eventType: 'created' | 'updated' | 'assigned' | 'transferred' | 'closed'): void {
-    if (io) {
-      const eventData = { incident };
+  private async emitIncidentSocketEvents(
+    incident: Incident,
+    eventType: 'created' | 'updated' | 'assigned' | 'transferred' | 'closed',
+  ): Promise<void> {
+    if (!io) return;
 
+    const eventData = { incident };
+
+    // Resolve display names where useful
+    const technicianDisplayName = incident.handler
+      ? await this.getDisplayNameByServiceNum(incident.handler)
+      : null;
+
+    try {
       if (eventType === 'created') {
-        // Send to ALL users for general awareness (no popup, just for Redux state update)
         io.emit('incident_created', eventData);
 
-        // Send to specific assigned technician (with popup notification)
         if (incident.handler) {
-          io.to(`user_${incident.handler}`).emit(
-            'incident_assigned_technician',
-            {
+          io.to(`user_${incident.handler}`).emit('incident_assigned_technician', {
+            ...eventData,
+            message: `You have been assigned incident ${incident.incident_number}`,
+          });
+        }
+
+        if (incident.informant && incident.handler) {
+          const informantMsg = `Your incident ${incident.incident_number} has been assigned to ${technicianDisplayName || incident.handler
+            }`;
+          // Persist notification for informant and emit the saved notification object
+          try {
+            const savedInformantNotif = await this.notificationsService.createNotification({
+              recipientServiceNumber: incident.informant,
+              message: informantMsg,
+              incidentNumber: incident.incident_number,
+              actorName: technicianDisplayName ?? null,
+              actorServiceNum: incident.handler ?? null,
+            });
+            io.to(`user_${incident.informant}`).emit('incident_assigned_informant', {
               ...eventData,
-              message: `You have been assigned incident ${incident.incident_number}`,
-            },
-          );
+              message: informantMsg,
+              notification: savedInformantNotif,
+            });
+          } catch (e) {
+            // still emit even if persist failed
+            io.to(`user_${incident.informant}`).emit('incident_assigned_informant', {
+              ...eventData,
+              message: informantMsg,
+            });
+          }
+        }
+
+        if (incident.handler) {
+          const techMsg = `You have been assigned incident ${incident.incident_number}`;
+          try {
+            const savedTechNotif = await this.notificationsService.createNotification({
+              recipientServiceNumber: incident.handler,
+              message: techMsg,
+              incidentNumber: incident.incident_number,
+              actorName: null,
+              actorServiceNum: incident.handler ?? null,
+            });
+            io.to(`user_${incident.handler}`).emit('incident_assigned_technician', {
+              ...eventData,
+              message: techMsg,
+              notification: savedTechNotif,
+            });
+          } catch (e) {
+            // fallback emit without saved object
+            io.to(`user_${incident.handler}`).emit('incident_assigned_technician', {
+              ...eventData,
+              message: techMsg,
+            });
+          }
         }
       } else if (eventType === 'updated') {
-        // Send to ALL users for general awareness (no popup, just for Redux state update)
         io.emit('incident_updated', eventData);
-
-        // Send targeted notification to assigned handler (with popup)
         if (incident.handler) {
-          io.to(`user_${incident.handler}`).emit(
-            'incident_updated_assigned',
-            {
-              ...eventData,
-              message: `Incident ${incident.incident_number} has been updated`,
-            },
-          );
+          io.to(`user_${incident.handler}`).emit('incident_updated_assigned', {
+            ...eventData,
+            message: `Incident ${incident.incident_number} has been updated`,
+          });
         }
       } else if (eventType === 'assigned') {
-        // Send to ALL users for general awareness (no popup, just for Redux state update)
         io.emit('incident_updated', eventData);
 
-        // Send targeted notification to newly assigned technician (with popup)
         if (incident.handler) {
-          io.to(`user_${incident.handler}`).emit(
-            'incident_assigned_technician',
-            {
+          const techMsg = `You have been assigned incident ${incident.incident_number}`;
+          try {
+            const savedTechNotif = await this.notificationsService.createNotification({
+              recipientServiceNumber: incident.handler,
+              message: techMsg,
+              incidentNumber: incident.incident_number,
+              actorName: null,
+              actorServiceNum: incident.handler ?? null,
+            });
+            io.to(`user_${incident.handler}`).emit('incident_assigned_technician', {
+              ...eventData,
+              message: techMsg,
+              notification: savedTechNotif,
+            });
+          } catch (e) {
+            io.to(`user_${incident.handler}`).emit('incident_assigned_technician', {
               ...eventData,
               message: `You have been assigned incident ${incident.incident_number}`,
-            },
-          );
+            });
+          }
+        }
+
+        if (incident.informant) {
+          const informantMsg = `Your incident ${incident.incident_number} has been assigned to ${technicianDisplayName || incident.handler || 'TBD'
+            }`;
+          try {
+            const savedInformantNotif = await this.notificationsService.createNotification({
+              recipientServiceNumber: incident.informant,
+              message: informantMsg,
+              incidentNumber: incident.incident_number,
+              actorName: technicianDisplayName ?? null,
+              actorServiceNum: incident.handler ?? null,
+            });
+            io.to(`user_${incident.informant}`).emit('incident_assigned_informant', {
+              ...eventData,
+              message: informantMsg,
+              notification: savedInformantNotif,
+            });
+          } catch (e) {
+            io.to(`user_${incident.informant}`).emit('incident_assigned_informant', {
+              ...eventData,
+              message: informantMsg,
+            });
+          }
         }
       } else if (eventType === 'transferred') {
-        // Send to ALL users for general awareness (no popup, just for Redux state update)
         io.emit('incident_updated', eventData);
-
-        // Send targeted notification to newly assigned Tier2 technician (with popup)
         if (incident.handler) {
-          io.to(`user_${incident.handler}`).emit(
-            'incident_assigned_technician',
-            {
+          const transferMsg = `Incident ${incident.incident_number} has been transferred to you`;
+          io.to(`user_${incident.handler}`).emit('incident_assigned_technician', {
+            ...eventData,
+            message: transferMsg,
+          });
+          try {
+            const savedTransferNotif = await this.notificationsService.createNotification({
+              recipientServiceNumber: incident.handler,
+              message: transferMsg,
+              incidentNumber: incident.incident_number,
+              actorName: null,
+              actorServiceNum: incident.handler ?? null,
+            });
+            io.to(`user_${incident.handler}`).emit('incident_assigned_technician', {
               ...eventData,
-              message: `Incident ${incident.incident_number} has been transferred to you`,
-            },
-          );
+              message: transferMsg,
+              notification: savedTransferNotif,
+            });
+          } catch (e) {
+            io.to(`user_${incident.handler}`).emit('incident_assigned_technician', {
+              ...eventData,
+              message: transferMsg,
+            });
+          }
         }
       } else if (eventType === 'closed') {
-        // Send to ALL users for general awareness (no popup, just for Redux state update)
         io.emit('incident_updated', eventData);
 
-        // Send targeted notification to the user who created the incident (informant)
         if (incident.informant) {
-          io.to(`user_${incident.informant}`).emit(
-            'incident_closed_notification',
-            {
+          const closedMsg = `Your incident ${incident.incident_number} has been closed by the technician`;
+          io.to(`user_${incident.informant}`).emit('incident_closed_notification', {
+            ...eventData,
+            message: closedMsg,
+          });
+          try {
+            const savedClosedNotif = await this.notificationsService.createNotification({
+              recipientServiceNumber: incident.informant,
+              message: closedMsg,
+              incidentNumber: incident.incident_number,
+              actorName: technicianDisplayName ?? null,
+              actorServiceNum: incident.handler ?? null,
+            });
+            io.to(`user_${incident.informant}`).emit('incident_closed_notification', {
               ...eventData,
-              message: `Your incident ${incident.incident_number} has been closed by the technician`,
-            },
-          );
+              message: closedMsg,
+              notification: savedClosedNotif,
+            });
+          } catch (e) {
+            io.to(`user_${incident.informant}`).emit('incident_closed_notification', {
+              ...eventData,
+              message: closedMsg,
+            });
+          }
         }
 
-        // Send notification to all admins and super admins
         io.emit('incident_closed_admin_notification', {
           ...eventData,
-          message: `Incident ${incident.incident_number} has been closed by technician ${incident.handler}`,
+          message: `Incident ${incident.incident_number} has been closed by technician ${technicianDisplayName || incident.handler
+            }`,
         });
       }
+    } catch (err) {
+      this.logger.error(`[SOCKET] emitIncidentSocketEvents failed: ${err?.message || err}`);
     }
   }
 
@@ -1473,22 +1768,22 @@ export class IncidentService {
   private async selectBestTechnician(availableTechnicians: Technician[]): Promise<Technician | null> {
     let selectedTechnician: Technician | null = null;
     let minWorkload = Number.MAX_SAFE_INTEGER;
-    
+
     for (const tech of availableTechnicians) {
       const activeWorkload = await this.incidentRepository.count({
-        where: { 
-          handler: tech.serviceNum, 
+        where: {
+          handler: tech.serviceNum,
           status: In([IncidentStatus.OPEN, IncidentStatus.HOLD, IncidentStatus.IN_PROGRESS])
         },
       });
-      
+
       // Only consider technicians with less than 3 active incidents
       if (activeWorkload < 3 && activeWorkload < minWorkload) {
         minWorkload = activeWorkload;
         selectedTechnician = tech;
       }
     }
-    
+
     return selectedTechnician;
   }
 
@@ -1497,7 +1792,7 @@ export class IncidentService {
    */
   private async createIncidentHistory(incident: Incident, assignedTo: string, comment: string): Promise<void> {
     const assignedToDisplayName = await this.getDisplayNameByServiceNum(assignedTo);
-    
+
     const history = new IncidentHistory();
     history.incidentNumber = incident.incident_number;
     history.status = incident.status;
@@ -1515,14 +1810,14 @@ export class IncidentService {
    * Try to assign incident to an active Tier2 technician
    */
   private async tryAssignToTier2Technician(
-    mainCategoryId: any, 
-    teamName: string, 
+    mainCategoryId: any,
+    teamName: string,
     category: string
   ): Promise<{ success: boolean; technician?: Technician; message?: string }> {
     let tier2Tech: Technician | null = null;
     const tierVariants = ['Tier2', 'tier2'];
     const candidates: Technician[] = [];
-    
+
     // Search by different combinations of team identifiers
     const teamIdentifiers = [
       mainCategoryId?.toString(),
@@ -1530,52 +1825,52 @@ export class IncidentService {
       teamName,
       teamName?.toString(),
     ].filter(Boolean);
-    
+
     for (const team of teamIdentifiers) {
       for (const tier of tierVariants) {
         if (!team) continue;
-        
+
         // Try matching both team and teamId fields
         const foundByTeam = await this.technicianRepository.find({
           where: { team: team, tier: tier, active: true },
         });
-        
+
         const foundByTeamId = await this.technicianRepository.find({
           where: { teamId: team, tier: tier, active: true },
         });
-        
+
         // Combine results and remove duplicates
         const allFound = [...foundByTeam, ...foundByTeamId];
-        const uniqueFound = allFound.filter((tech, index, self) => 
+        const uniqueFound = allFound.filter((tech, index, self) =>
           index === self.findIndex(t => t.serviceNum === tech.serviceNum)
         );
-        
+
         if (uniqueFound.length > 0) {
           candidates.push(...uniqueFound);
         }
       }
     }
-    
+
     // Remove duplicates from final candidates array
-    const uniqueCandidates = candidates.filter((tech, index, self) => 
+    const uniqueCandidates = candidates.filter((tech, index, self) =>
       index === self.findIndex(t => t.serviceNum === tech.serviceNum)
     );
-    
+
     if (uniqueCandidates.length === 0) {
-      return { 
-        success: false, 
-        message: `No active Tier2 technician found for team '${mainCategoryId || teamName}' (category: ${category})` 
+      return {
+        success: false,
+        message: `No active Tier2 technician found for team '${mainCategoryId || teamName}' (category: ${category})`
       };
     }
 
     // Filter candidates based on skills for the incident category
     const skilledCandidates: Technician[] = [];
-    
+
     // Create a temporary incident object to check skills
     const tempIncident = { category } as Incident;
-    
+
     this.logger.log(`[SKILL-CHECK] Checking skills for ${uniqueCandidates.length} Tier2 candidates for category '${category}'`);
-    
+
     for (const candidate of uniqueCandidates) {
       const isSkilled = await this.isTechnicianSkilledForIncident(candidate, tempIncident);
       if (isSkilled) {
@@ -1585,24 +1880,24 @@ export class IncidentService {
         this.logger.log(`[SKILL-CHECK] Technician ${candidate.serviceNum} is NOT skilled for category '${category}'`);
       }
     }
-    
+
     this.logger.log(`[SKILL-CHECK] Found ${skilledCandidates.length} skilled Tier2 technicians out of ${uniqueCandidates.length} candidates`);
-    
+
     if (skilledCandidates.length === 0) {
-      return { 
-        success: false, 
-        message: `No skilled Tier2 technician found for team '${mainCategoryId || teamName}' with category '${category}'` 
+      return {
+        success: false,
+        message: `No skilled Tier2 technician found for team '${mainCategoryId || teamName}' with category '${category}'`
       };
-    } 
+    }
 
     // Apply workload-based round-robin selection on skilled candidates
     const teamKey = `${mainCategoryId || teamName}_Tier2`;
     tier2Tech = await this.selectTier2TechnicianWithRoundRobin(skilledCandidates, teamKey);
 
     if (!tier2Tech) {
-      return { 
-        success: false, 
-        message: `All skilled Tier2 technicians for team '${mainCategoryId || teamName}' are at max capacity (3 incidents each)` 
+      return {
+        success: false,
+        message: `All skilled Tier2 technicians for team '${mainCategoryId || teamName}' are at max capacity (3 incidents each)`
       };
     }
 
@@ -1613,19 +1908,19 @@ export class IncidentService {
    * Select Tier2 technician using round-robin with workload consideration
    */
   private async selectTier2TechnicianWithRoundRobin(
-    availableTechnicians: Technician[], 
+    availableTechnicians: Technician[],
     teamKey: string
   ): Promise<Technician | null> {
     if (availableTechnicians.length === 1) {
       // Single technician - check workload only
       const singleTech = availableTechnicians[0];
       const activeWorkload = await this.incidentRepository.count({
-        where: { 
-          handler: singleTech.serviceNum, 
+        where: {
+          handler: singleTech.serviceNum,
           status: In([IncidentStatus.OPEN, IncidentStatus.HOLD, IncidentStatus.IN_PROGRESS])
         },
       });
-      
+
       if (activeWorkload < 3) {
         this.logger.log(`[TIER2-ASSIGNMENT] Single Tier2 technician ${singleTech.serviceNum} available with workload ${activeWorkload}/3`);
         return singleTech;
@@ -1639,17 +1934,17 @@ export class IncidentService {
     const currentIndex = this.tier2AssignmentIndex.get(teamKey) || 0;
     let attemptCount = 0;
     let selectedIndex = currentIndex;
-    
+
     // Try round-robin starting from current index
     while (attemptCount < availableTechnicians.length) {
       const candidateTech = availableTechnicians[selectedIndex];
       const activeWorkload = await this.incidentRepository.count({
-        where: { 
-          handler: candidateTech.serviceNum, 
+        where: {
+          handler: candidateTech.serviceNum,
           status: In([IncidentStatus.OPEN, IncidentStatus.HOLD, IncidentStatus.IN_PROGRESS])
         },
       });
-      
+
       // Check if this technician has capacity
       if (activeWorkload < 3) {
         // Update round-robin index for next assignment
@@ -1658,12 +1953,12 @@ export class IncidentService {
         this.logger.log(`[TIER2-ASSIGNMENT] Round-robin assigned to Tier2 technician ${candidateTech.serviceNum} with workload ${activeWorkload}/3 (index: ${selectedIndex})`);
         return candidateTech;
       }
-      
+
       // Move to next technician in round-robin
       selectedIndex = (selectedIndex + 1) % availableTechnicians.length;
       attemptCount++;
     }
-    
+
     this.logger.log(`[TIER2-ASSIGNMENT] All ${availableTechnicians.length} Tier2 technicians are at max capacity (3 incidents each)`);
     return null;
   }
@@ -1727,8 +2022,8 @@ export class IncidentService {
 
     // Try to assign to active Tier2 technician
     const tier2Result = await this.tryAssignToTier2Technician(
-      mainCategoryId, 
-      teamName, 
+      mainCategoryId,
+      teamName,
       incident.category
     );
 
@@ -1745,8 +2040,8 @@ export class IncidentService {
     await this.incidentRepository.save(incident);
 
     await this.createIncidentHistory(
-      incident, 
-      tier2Result.technician.serviceNum, 
+      incident,
+      tier2Result.technician.serviceNum,
       'Incident automatically assigned from Tier2 pending queue.'
     );
 
@@ -1798,6 +2093,104 @@ export class IncidentService {
       throw new InternalServerErrorException(
         `Failed to retrieve incidents by main category code: ${message}`
       );
+    }
+  }
+
+  async getTechnicianStats(serviceNum: string): Promise<any> {
+    try {
+      // Get all incidents assigned to this technician
+      const allIncidents = await this.incidentRepository.find({
+        where: { handler: serviceNum },
+      });
+
+      // Count by priority
+      const critical = allIncidents.filter(inc => inc.priority === IncidentPriority.CRITICAL).length;
+      const high = allIncidents.filter(inc => inc.priority === IncidentPriority.HIGH).length;
+      const medium = allIncidents.filter(inc => inc.priority === IncidentPriority.MEDIUM).length;
+
+      // Count by status
+      const open = allIncidents.filter(inc => inc.status === IncidentStatus.OPEN).length;
+      const inProgress = allIncidents.filter(inc => inc.status === IncidentStatus.IN_PROGRESS).length;
+      const hold = allIncidents.filter(inc => inc.status === IncidentStatus.HOLD).length;
+      const closed = allIncidents.filter(inc => inc.status === IncidentStatus.CLOSED).length;
+
+      return {
+        totalIncidents: allIncidents.length,
+        byPriority: {
+          critical,
+          high,
+          medium
+        },
+        byStatus: {
+          open,
+          inProgress,
+          hold,
+          closed
+        }
+      };
+    } catch (error) {
+      this.logger.error(`Failed to fetch technician stats for ${serviceNum}:`, error);
+      throw error;
+    }
+  }
+
+  // induwara ayya's logic for performance metrics (data analysis for dashboard)
+  async getTechnicianPerformance(serviceNum: string): Promise<any> {
+    try {
+      // Get all performance records for this technician
+      const performanceRecords = await this.performanceRepo.find({
+        where: { incidentNumber: In(
+          (await this.incidentRepository.find({ 
+            where: { handler: serviceNum },
+            select: ['incident_number']
+          })).map(inc => inc.incident_number)
+        )}
+      });
+
+      if (performanceRecords.length === 0) {
+        return {
+          totalIncidents: 0,
+          responseOnTime: 0,
+          resolutionOnTime: 0,
+          responseOnTimePercent: 0,
+          resolutionOnTimePercent: 0,
+          avgResponseTime: 0,
+          avgResolutionTime: 0
+        };
+      }
+
+      // Calculate response time metrics
+      const responseOnTime = performanceRecords.filter(rec => 
+        rec.responseTimeLabel === 'On Time' || rec.responseTimeLabel === 'on time'
+      ).length;
+
+      const totalResponseTime = performanceRecords.reduce((sum, rec) => 
+        sum + (rec.responseTimeMinutes || 0), 0
+      );
+      const avgResponseTime = Math.round(totalResponseTime / performanceRecords.length);
+
+      // Calculate resolution time metrics
+      const resolutionOnTime = performanceRecords.filter(rec => 
+        rec.resolutionTimeLabel === 'On Time' || rec.resolutionTimeLabel === 'on time'
+      ).length;
+
+      const totalResolutionTime = performanceRecords.reduce((sum, rec) => 
+        sum + (rec.resolutionTimeMinutes || 0), 0
+      );
+      const avgResolutionTime = Math.round(totalResolutionTime / 60); // Convert to hours
+
+      return {
+        totalIncidents: performanceRecords.length,
+        responseOnTime,
+        resolutionOnTime,
+        responseOnTimePercent: Math.round((responseOnTime / performanceRecords.length) * 100),
+        resolutionOnTimePercent: Math.round((resolutionOnTime / performanceRecords.length) * 100),
+        avgResponseTime,
+        avgResolutionTime
+      };
+    } catch (error) {
+      this.logger.error(`Failed to fetch technician performance for ${serviceNum}:`, error);
+      throw error;
     }
   }
 
