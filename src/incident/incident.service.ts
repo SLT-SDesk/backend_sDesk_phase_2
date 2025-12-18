@@ -6,14 +6,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { NotificationsService } from '../notifications/notifications.service';  
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, In, Repository } from 'typeorm';
 import { CategoryItem } from '../Categories/Entities/Categories.entity';
 import { io } from '../main';
-import { NotificationsService } from '../notifications/notifications.service';
 import { SLTUser } from '../sltusers/entities/sltuser.entity';
 import { TeamAdmin } from '../teamadmin/entities/teamadmin.entity';
 import { Technician } from '../technician/entities/technician.entity';
