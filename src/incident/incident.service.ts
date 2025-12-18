@@ -823,7 +823,7 @@ export class IncidentService {
       Object.assign(incident, incidentDto);
       const updatedIncident = await this.incidentRepository.save(incident);
 
-      // ******performance-tracking logic********
+      // ******performance-tracking logic******** (data preparation)
       // helper to format minutes into "hours min" or "min"
       function formatMinutes(totalMinutes: number): string {
         if (totalMinutes < 60) {
@@ -2131,6 +2131,7 @@ export class IncidentService {
     }
   }
 
+  // induwara ayya's logic for performance metrics (data analysis for dashboard)
   async getTechnicianPerformance(serviceNum: string): Promise<any> {
     try {
       // Get all performance records for this technician
