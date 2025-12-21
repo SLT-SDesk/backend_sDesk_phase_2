@@ -11,6 +11,7 @@ import { Repository } from 'typeorm';
 import { Technician } from './entities/technician.entity';
 import { CreateTechnicianDto } from './dto/create-technician.dto';
 import { notifyInactiveByAdmin, emitTechnicianStatusChange } from '../main';
+import { Session } from '../sessions/entities/session.entity';
 
 @Injectable()
 export class TechnicianService {
@@ -131,6 +132,50 @@ export class TechnicianService {
       return all.map((t) => ({ serviceNum: t.serviceNum, active: 'true' })); // simplified logic
     } catch (error) {
       throw new Error('Failed to retrieve technician status');
+    }
+  }
+
+  //get technician including sessions
+  async getTechnicianWithSessions(serviceNum: string): Promise<Technician> {
+    try {
+      const technician = await this.technicianRepo.findOne({
+        where: { serviceNum },
+        relations: ['sessions'],
+      });
+      if (!technician) {
+        throw new NotFoundException(
+          `Technician with Service Number "${serviceNum}" not found.`,
+        );
+      }
+      return technician;
+    } catch (error) {
+      if (error instanceof NotFoundException) throw error;
+      throw new InternalServerErrorException(
+        'Error fetching technician with sessions.',
+      );
+    }
+  }
+
+  //getAllTechnicianNameWithSessions By Main category
+  async getAllTechnicianNameWithSessionsByMainCategory(
+    teamId: string,
+  ): Promise<{ serviceNum: string; name: string; sessions: Session[] }[]> {
+    try {
+      const technicians = await this.technicianRepo
+        .createQueryBuilder('technician')
+        .leftJoinAndSelect('technician.sessions', 'session')
+        .where('technician.teamId = :teamId', { teamId })
+        .select(['technician.serviceNum', 'technician.name', 'session'])
+        .getMany();
+      return technicians.map((tech) => ({
+        serviceNum: tech.serviceNum,
+        name: tech.name,
+        sessions: tech.sessions,
+      }));
+    } catch (error) {
+      throw new InternalServerErrorException(
+        'Failed to fetch technicians with sessions by main category.',
+      );
     }
   }
 }

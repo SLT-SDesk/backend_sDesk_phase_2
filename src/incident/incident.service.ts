@@ -5,12 +5,12 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { NotificationsService } from '../notifications/notifications.service';  
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, In, Repository } from 'typeorm';
 import { CategoryItem } from '../Categories/Entities/Categories.entity';
 import { io } from '../main';
-import { NotificationsService } from '../notifications/notifications.service';
 import { SLTUser } from '../sltusers/entities/sltuser.entity';
 import { TeamAdmin } from '../teamadmin/entities/teamadmin.entity';
 import { Technician } from '../technician/entities/technician.entity';
@@ -46,6 +46,15 @@ export class IncidentService {
     private readonly performanceRepo: Repository<TechnicianPerformance>, //
 
   ) { }
+
+  //get all technician performace table data
+  async getAllTechnicianPerformance(): Promise<TechnicianPerformance[]> {
+    try {
+      return await this.performanceRepo.find();
+    } catch (error) {
+      throw new InternalServerErrorException('Failed to fetch technician performance data');
+    }
+  }
 
   // Helper method to get display_name from slt_users table by serviceNum
   private async getDisplayNameByServiceNum(serviceNum: string): Promise<string> {
