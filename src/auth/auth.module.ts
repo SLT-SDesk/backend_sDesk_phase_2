@@ -5,6 +5,7 @@ import { AuthService } from './auth.service';
 import { SLTUsersModule } from '../sltusers/sltusers.module';
 import { TeamAdminModule } from '../teamadmin/teamadmin.module';
 import { TechnicianModule } from '../technician/technician.module';
+import { SessionsModule } from '../sessions/sessions.module';
 
 
 @Module({
@@ -13,6 +14,7 @@ import { TechnicianModule } from '../technician/technician.module';
     SLTUsersModule,
     TeamAdminModule,
     forwardRef(() => TechnicianModule),
+    SessionsModule,
 
   ],
   controllers: [AuthController],

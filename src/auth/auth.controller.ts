@@ -8,6 +8,7 @@ import { TechnicianService } from '../technician/technician.service';
 import { emitTechnicianStatusChange } from '../main';
 import { User } from './interface/auth.interface';
 import { UserPayload } from './interface/user-payload.interface';
+import { SessionsService } from '../sessions/sessions.service';
 
 @Controller('auth')
 export class AuthController {
@@ -15,6 +16,7 @@ export class AuthController {
     private readonly authService: AuthService,
     private readonly teamAdminService: TeamAdminService,
     private readonly technicianService: TechnicianService,
+    private readonly sessionsService: SessionsService,
   ) {}
 
   @Post('login')
@@ -41,6 +43,9 @@ export class AuthController {
           user.serviceNum,
           true,
         );
+
+        //Session creation
+        await this.sessionsService.createSession(user.serviceNum);
 
         // Emit WebSocket event so all admins update instantly
         emitTechnicianStatusChange(user.serviceNum, true);
@@ -94,6 +99,10 @@ export class AuthController {
                 payload.serviceNum,
                 false,
               );
+
+              // End technician session on logout
+              await this.sessionsService.endSession(payload.serviceNum);
+
               emitTechnicianStatusChange(payload.serviceNum, false);
             }
           }
