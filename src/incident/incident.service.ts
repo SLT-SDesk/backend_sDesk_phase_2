@@ -47,6 +47,15 @@ export class IncidentService {
 
   ) { }
 
+  //get all technician performace table data
+  async getAllTechnicianPerformance(): Promise<TechnicianPerformance[]> {
+    try {
+      return await this.performanceRepo.find();
+    } catch (error) {
+      throw new InternalServerErrorException('Failed to fetch technician performance data');
+    }
+  }
+
   // Helper method to get display_name from slt_users table by serviceNum
   private async getDisplayNameByServiceNum(serviceNum: string): Promise<string> {
     if (!serviceNum) return serviceNum;

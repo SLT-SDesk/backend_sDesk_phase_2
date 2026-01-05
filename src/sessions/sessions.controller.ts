@@ -2,7 +2,7 @@ import { Controller, Get, Param, UseGuards } from '@nestjs/common';
 import { SessionsService } from './sessions.service';
 import { JwtAuthGuard } from '../middlewares/jwt-auth.guard';
 import { RolesGuard } from '../middlewares/roles.guard';
-import { Roles } from 'src/middlewares/roles.decorator';
+import { Roles } from '../middlewares/roles.decorator';
 import { Session } from './entities/session.entity';
 
 @Controller()

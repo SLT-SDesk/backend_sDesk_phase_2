@@ -33,6 +33,18 @@ import { io } from '../main';
 export class IncidentController {
   constructor(private readonly incidentService: IncidentService) { }
 
+  //get all technician performace table data
+  @Get('all-technician-performance')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('user', 'admin', 'technician', 'teamLeader', 'superAdmin')
+  async getAllTechnicianPerformance(): Promise<any> {
+    try {
+      return await this.incidentService.getAllTechnicianPerformance();
+    } catch (error) {
+      throw new InternalServerErrorException('Failed to fetch technician performance data');
+    }
+  }
+
   // Post method
   @Post('create-incident')
   @UseGuards(JwtAuthGuard, RolesGuard)
