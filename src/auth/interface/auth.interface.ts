@@ -1,9 +1,15 @@
+export type Role =
+  | 'user'
+  | 'admin'
+  | 'technician'
+  | 'teamLeader'
+  | 'superAdmin';
+
 export interface User {
-  id: string;
   email: string;
-  serviceNum: string;
   name: string;
-  role: 'admin' | 'user' | 'technician' | 'teamLeader' | 'superAdmin';
+  role: Role;
+  serviceNum: string;
   contactNumber?: string;
 }
 
@@ -26,8 +32,10 @@ export interface MicrosoftTokenResponse {
 export interface JwtPayload {
   name: string;
   email: string;
-  role: 'admin' | 'user' | 'technician' | 'teamLeader' | 'superAdmin';
+  role: Role;
   serviceNum: string;
+  contactNumber?: string;
   exp?: number; // Expiration time
   iat?: number; // Issued at time
+  designation?: string;
 }
