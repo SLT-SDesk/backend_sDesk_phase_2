@@ -17,12 +17,13 @@ import { TeamAdminDto } from './dto/teamadmin-dto';
 import { JwtAuthGuard } from '../middlewares/jwt-auth.guard';
 import { RolesGuard } from '../middlewares/roles.guard';
 import { Roles } from '../middlewares/roles.decorator';
+import { Req } from '@nestjs/common';
 
 @Controller()
 export class TeamAdminController {
   private readonly logger = new Logger(TeamAdminController.name);
 
-  constructor(private readonly teamAdminService: TeamAdminService) {}
+  constructor(private readonly teamAdminService: TeamAdminService) { }
 
   @Post('admin/:teamId')
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -129,4 +130,32 @@ export class TeamAdminController {
       );
     }
   }
+
+  @Get('admin/me')
+  @UseGuards(JwtAuthGuard)
+  async getMyTeamAdmin(@Req() req): Promise<TeamAdmin> {
+    const serviceNumber = req.user?.serviceNumber;
+
+    if (!serviceNumber) {
+      throw new HttpException(
+        'Service number not found in token',
+        HttpStatus.UNAUTHORIZED,
+      );
+    }
+
+    const admin =
+      await this.teamAdminService.findTeamAdminByServiceNumber(serviceNumber);
+
+    if (!admin) {
+      throw new HttpException(
+        'Team admin not found',
+        HttpStatus.NOT_FOUND,
+      );
+    }
+
+    return admin;
+  }
+
+
+
 }
