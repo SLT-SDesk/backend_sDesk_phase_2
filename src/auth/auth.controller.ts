@@ -8,6 +8,7 @@ import { TechnicianService } from '../technician/technician.service';
 import { emitTechnicianStatusChange } from '../main';
 import { User } from './interface/auth.interface';
 import { UserPayload } from './interface/user-payload.interface';
+import { SessionsService } from '../sessions/sessions.service';
 
 @Controller('auth')
 export class AuthController {
@@ -15,7 +16,8 @@ export class AuthController {
     private readonly authService: AuthService,
     private readonly teamAdminService: TeamAdminService,
     private readonly technicianService: TechnicianService,
-  ) {}
+    private readonly sessionsService: SessionsService,
+  ) { }
 
   @Post('login')
   async microsoftLogin(
@@ -42,31 +44,42 @@ export class AuthController {
           true,
         );
 
+        //Session creation
+        await this.sessionsService.createSession(user.serviceNum);
+
         // Emit WebSocket event so all admins update instantly
         emitTechnicianStatusChange(user.serviceNum, true);
       }
 
-      // Set refresh token cookie
+      const isProd = process.env.NODE_ENV === 'production';
+
       res.cookie('refreshToken', refreshToken, {
         httpOnly: true,
-        secure: true, // Must be true in production
-        sameSite: 'none', // Allows cross-origin
-        path: '/auth/refresh-token', // Optional, restricts cookie to refresh endpoint
+        secure: isProd,
+        sameSite: isProd ? 'none' : 'lax',
+        path: '/auth/refresh-token',
         maxAge: 7 * 24 * 60 * 60 * 1000,
       });
 
-      // Set access token cookie
       res.cookie('jwt', accessToken, {
         httpOnly: true,
-        secure: true, // Must be true in production
-        sameSite: 'none', // Allows cross-origin
+        secure: isProd,
+        sameSite: isProd ? 'none' : 'lax',
         maxAge: 60 * 60 * 1000,
       });
 
-      return { success: true, user, accessToken };
-    } catch {
-      return { success: false, message: 'Login failed' };
+
+      return { success: true, user, accessToken };//new**s
+    } catch (error) {
+      console.error('Microsoft login error:', error);
+
+      return {
+        success: false,
+        message:
+          error instanceof Error ? error.message : 'Login failed',
+      };
     }
+
   }
 
   @Post('logout')
@@ -94,6 +107,10 @@ export class AuthController {
                 payload.serviceNum,
                 false,
               );
+
+              // End technician session on logout
+              await this.sessionsService.endSession(payload.serviceNum);
+
               emitTechnicianStatusChange(payload.serviceNum, false);
             }
           }
@@ -116,13 +133,22 @@ export class AuthController {
         }
       }
 
+      const isProd = process.env.NODE_ENV === 'production';
+
       try {
         res.clearCookie('refreshToken', {
           httpOnly: true,
-          secure: true,
-          sameSite: 'none',
+          secure: isProd,
+          sameSite: isProd ? 'none' : 'lax',
           path: '/auth/refresh-token',
         });
+
+        res.clearCookie('jwt', {
+          httpOnly: true,
+          secure: isProd,
+          sameSite: isProd ? 'none' : 'lax',
+        });
+
       } catch (e) {
         return {
           success: false,
@@ -130,18 +156,6 @@ export class AuthController {
         };
       }
 
-      try {
-        res.clearCookie('jwt', {
-          httpOnly: true,
-          secure: true,
-          sameSite: 'none',
-        });
-      } catch (e) {
-        return {
-          success: false,
-          message: `Clear jwt cookie error: ${e instanceof Error ? e.message : e}`,
-        };
-      }
 
       return { success: true, message: 'Logged out successfully' };
     } catch {
@@ -149,28 +163,31 @@ export class AuthController {
     }
   }
 
+  // new**s
   @Post('refresh-token')
   async refreshToken(
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<{ success: boolean; accessToken?: string; message?: string }> {
+    const isProd = process.env.NODE_ENV === 'production';
+
     try {
       const refreshToken = req.cookies?.refreshToken;
       if (typeof refreshToken !== 'string') {
         res.clearCookie('jwt', {
           httpOnly: true,
-          secure: true,
-          sameSite: 'none',
-          path: '/auth/refresh-token',
+          secure: isProd,
+          sameSite: isProd ? 'none' : 'lax',
         });
         return { success: false, message: 'No refresh token provided' };
       }
 
       const accessToken = await this.authService.refreshJwtToken(refreshToken);
+
       res.cookie('jwt', accessToken, {
         httpOnly: true,
-        secure: true,
-        sameSite: 'none',
+        secure: isProd,
+        sameSite: isProd ? 'none' : 'lax',
         maxAge: 60 * 60 * 1000,
       });
 
@@ -178,18 +195,21 @@ export class AuthController {
     } catch {
       res.clearCookie('jwt', {
         httpOnly: true,
-        secure: true,
-        sameSite: 'none',
+        secure: isProd,
+        sameSite: isProd ? 'none' : 'lax',
       });
+
       res.clearCookie('refreshToken', {
         httpOnly: true,
-        secure: true,
-        sameSite: 'none',
+        secure: isProd,
+        sameSite: isProd ? 'none' : 'lax',
         path: '/auth/refresh-token',
       });
+
       return { success: false, message: 'Token refresh failed' };
     }
   }
+
 
   @Get('logged-user')
   async getLoggedUser(
@@ -218,15 +238,31 @@ export class AuthController {
         const admin = await this.teamAdminService.findTeamAdminByServiceNumber(
           payload.serviceNum,
         );
-        if (admin) {
-          return { success: true, user: { ...admin, role: 'admin' } };
-        } else {
+
+        if (!admin) {
           return {
             success: false,
             message: 'Admin not found for this service number',
           };
         }
+
+        return {
+          success: true,
+          user: {
+            id: admin.id,
+            serviceNum: admin.serviceNumber,
+            email: admin.email,
+            name: admin.userName,     // ✅ mapped correctly
+            role: 'admin',
+            teamId: admin.teamId,     // ✅ from team_admin table
+            teamName: admin.teamName, // ✅ from team_admin table
+            active: admin.active,
+          },
+        };
       }
+
+
+
 
       if (payload.role === 'technician' && payload.serviceNum) {
         const technician = await this.technicianService.findOneTechnician(

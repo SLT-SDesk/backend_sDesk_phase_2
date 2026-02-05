@@ -6,7 +6,8 @@ import {
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import { sign, decode, verify } from 'jsonwebtoken';
-import { User, JwtPayload } from './interface/auth.interface';
+import { User, JwtPayload, Role } from './interface/auth.interface';
+import { ErpEmployee } from 'src/erp/interface/erp-employee.interface';
 
 // Define DecodedIdToken interface to match expected id_token structure
 interface DecodedIdToken {
@@ -15,12 +16,19 @@ interface DecodedIdToken {
   name?: string;
   [key: string]: unknown;
 }
-import { SLTUsersService } from '../sltusers/sltusers.service';
-
-import { SLTUser } from '../sltusers/entities/sltuser.entity';
 import { v4 as uuidv4 } from 'uuid';
+import { UserRoleService } from 'src/user-role/user-role.service';
+import { ErpService } from 'src/erp/erp.service';
 
-const refreshTokensStore = new Map<string, string>();
+const refreshTokensStore = new Map<
+  string,
+  {
+    serviceNum: string;
+    name: string;
+    email: string;
+  }
+>();
+
 interface MicrosoftTokenResponse {
   id_token?: string;
   access_token?: string;
@@ -32,8 +40,9 @@ interface MicrosoftTokenResponse {
 export class AuthService {
   constructor(
     private configService: ConfigService,
-    private readonly sltUsersService: SLTUsersService,
-  ) {}
+    private readonly userRoleService: UserRoleService,
+    private readonly erpService: ErpService,
+  ) { }
 
   private getStringFromDecoded(
     decoded: DecodedIdToken | null | undefined,
@@ -46,33 +55,23 @@ export class AuthService {
     return '';
   }
 
-  generateTokens(user: SLTUser) {
-    const accessToken = sign(
-      {
-        name: user.display_name,
-        email: user.email,
-        role: user.role,
-        serviceNum: user.serviceNum,
-        contactNumber: user.contactNumber,
-      },
-      this.configService.get<string>('JWT_SECRET', 'your-secret-key'),
-      { expiresIn: '15m' }, // Short-lived access token
-    );
-    const refreshToken = uuidv4();
-    refreshTokensStore.set(refreshToken, user.email);
-    return { accessToken, refreshToken };
-  }
 
   async handleMicrosoftLogin(
     code: string,
     state: string,
     redirect_uri: string,
   ): Promise<{ accessToken: string; refreshToken: string; user: User }> {
+
+    console.log('🔥 handleMicrosoftLogin HIT');
+    console.log('ENV:', process.env.NODE_ENV);
+    console.log('CODE:', code);
+    console.log('REDIRECT_URI:', redirect_uri);
+
     try {
       if (state !== '12345') {
         throw new BadRequestException('Invalid state');
       }
-      const tokenResponse = await axios.post<MicrosoftTokenResponse>(
+      const tokenResponse = await axios.post(
         `https://login.microsoftonline.com/${this.configService.get('AZURE_TENANT_ID')}/oauth2/v2.0/token`,
         new URLSearchParams({
           client_id: this.configService.get('AZURE_CLIENT_ID') || '',
@@ -80,9 +79,12 @@ export class AuthService {
           code,
           redirect_uri,
           grant_type: 'authorization_code',
+          scope: 'openid profile email offline_access',
         }).toString(),
         { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
       );
+
+
 
       const id_token: string | undefined = (
         tokenResponse.data as { id_token?: string }
@@ -120,77 +122,111 @@ export class AuthService {
           }
           throw new UnauthorizedException(
             'Failed to fetch contact number from Microsoft Graph API: ' +
-              errMsg,
+            errMsg,
           );
         }
       }
-
+      //changed new**s
       if (id_token) {
         const decodedIdToken = decode(id_token) as DecodedIdToken;
         const azureId = this.getStringFromDecoded(decodedIdToken, 'oid');
-        const email = this.getStringFromDecoded(
-          decodedIdToken,
-          'preferred_username',
-        );
+        const email =
+          this.getStringFromDecoded(decodedIdToken, 'preferred_username') ||
+          this.getStringFromDecoded(decodedIdToken, 'email') ||
+          this.getStringFromDecoded(decodedIdToken, 'upn');
+
+        console.log('Decoded ID token:', decodedIdToken);
+        console.log('Resolved email:', email);
+
+        // changed new**s
         const name = this.getStringFromDecoded(decodedIdToken, 'name');
         let serviceNum = '';
+
         if (email && typeof email === 'string') {
-          serviceNum = email.split('@')[0];
+          const prefix = email.split('@')[0];
+          serviceNum = prefix;
+          console.log('Extracted serviceNum from email:', serviceNum);
+
+
         }
+
         if (!azureId || !email) {
           throw new UnauthorizedException('Missing user info in id_token');
         }
-        let user: SLTUser | null =
-          await this.sltUsersService.findByAzureId(azureId);
-        if (!user) {
-          user = await this.sltUsersService.createUser({
-            azureId,
-            display_name: name,
-            email,
-            serviceNum,
-            role: 'user',
-            contactNumber,
-          });
-        } else {
-          const updates: Partial<SLTUser> = {};
-          // check if name changed
-          if (name && user.display_name !== name) {
-            updates.display_name = name;
-          }
-          // check if contact number changed
-          if (contactNumber && contactNumber !== user.contactNumber) {
-            updates.contactNumber = contactNumber;
-          }
-          // chack if the email changed
-          if (email && email !== user.email) {
-            updates.email = email;
-          }
-          //Skip the update if no changes
-          if (Object.keys(updates).length > 0) {
-            const updated = await this.sltUsersService.updateUser(
-              azureId,
-              updates,
+
+        // Canonical identity values
+        let finalServiceNum = serviceNum;
+        let finalDisplayName = name;
+        let finalEmail = email;
+        let finalContactNumber = contactNumber;
+
+        // ERP integration (DEV + PROD)
+        let employee: ErpEmployee | null = null;
+
+        const shouldCallErp =
+          process.env.NODE_ENV === 'production' ||
+          process.env.NODE_ENV === 'development';
+
+        if (shouldCallErp) {
+          console.log('Calling ERP with service number:', serviceNum);
+
+          employee = await this.erpService.getEmployeeByServiceNum(serviceNum);
+
+          console.log('ERP EMPLOYEE:', employee);
+
+          if (!employee) {
+            throw new UnauthorizedException(
+              `Employee not found in ERP for service number ${serviceNum}`,
             );
-            if (updated) {
-              user = updated;
-            }
           }
+
+          finalServiceNum = employee.employeeNumber;
+          finalDisplayName = employee.employeeName;
+          finalEmail = employee.email?.trim() || email;
+          finalContactNumber = employee.mobileNo;
         }
-        if (!user) throw new UnauthorizedException('User creation failed');
-        const { accessToken, refreshToken } = this.generateTokens(user);
+
+
+
+        // Role must use finalServiceNum
+        let role = await this.userRoleService.getRoleByServiceNum(finalServiceNum);
+
+        if (!role) {
+          throw new UnauthorizedException(
+            `No role assigned for service number ${finalServiceNum}`,
+          );
+        }
+
+        // Generate JWT tokens new**s
+        const payload: JwtPayload = {
+          serviceNum: finalServiceNum,
+          name: finalDisplayName,
+          email: finalEmail,
+          role,
+          contactNumber: finalContactNumber,
+        };
+
+        const accessToken = sign(
+          payload,
+          this.configService.get<string>('JWT_SECRET')!,
+          { expiresIn: '15m' },
+        );
+
+        const refreshToken = uuidv4();
+        refreshTokensStore.set(refreshToken, {
+          serviceNum: finalServiceNum,
+          name: finalDisplayName,
+          email: finalEmail,
+        });
+
+
 
         return {
           accessToken,
           refreshToken,
-          user: {
-            id: user.id,
-            email: user.email,
-            name: user.display_name,
-            role: user.role,
-            serviceNum: user.serviceNum,
-            contactNumber: user.contactNumber,
-          },
+          user: payload,
         };
+
       }
       throw new UnauthorizedException('No id_token received from Microsoft.');
     } catch (error) {
@@ -210,43 +246,37 @@ export class AuthService {
       }
       throw new UnauthorizedException(
         'Authentication failed: ' +
-          ((error as Error).message ?? 'Unknown error'),
+        ((error as Error).message ?? 'Unknown error'),
       );
     }
   }
 
   async refreshJwtToken(refreshToken: string): Promise<string> {
-    try {
-      if (typeof refreshToken !== 'string' || !refreshToken) {
-        throw new UnauthorizedException('No refresh token provided');
-      }
-      const email = refreshTokensStore.get(refreshToken);
-      if (!email) {
-        throw new UnauthorizedException('Invalid refresh token');
-      }
-      const user = await this.sltUsersService.findByEmail(email);
-      if (!user) {
-        throw new UnauthorizedException('User not found');
-      }
-      const accessToken = sign(
-        {
-          name: user.display_name,
-          email: user.email,
-          role: user.role,
-          serviceNum: user.serviceNum,
-          contactNumber: user.contactNumber,
-        },
-        this.configService.get<string>('JWT_SECRET', 'your-secret-key'),
-        { expiresIn: '15m' },
-      );
-      return typeof accessToken === 'string' ? accessToken : '';
-    } catch (error) {
-      if (error instanceof UnauthorizedException) {
-        throw error;
-      }
-      throw new UnauthorizedException('Error refreshing token');
+    const data = refreshTokensStore.get(refreshToken);
+
+    if (!data) {
+      throw new UnauthorizedException('Invalid refresh token');
     }
+
+    const role = await this.userRoleService.getRoleByServiceNum(
+      data.serviceNum,
+    );
+
+    const payload: JwtPayload = {
+      serviceNum: data.serviceNum,
+      name: data.name,     // REAL NAME
+      email: data.email,   // REAL EMAIL
+      role,
+    };
+
+    return sign(
+      payload,
+      this.configService.get<string>('JWT_SECRET')!,
+      { expiresIn: '15m' },
+    );
   }
+
+
 
   revokeRefreshToken(refreshToken: string) {
     refreshTokensStore.delete(refreshToken);
