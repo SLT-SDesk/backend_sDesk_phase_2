@@ -1,4 +1,5 @@
 import { NestFactory } from '@nestjs/core';
+import helmet from 'helmet';
 import { AppModule } from './app.module';
 import * as cookieParser from 'cookie-parser';
 import { Request, Response, NextFunction } from 'express';
@@ -45,6 +46,8 @@ export function emitTechnicianStatusChange(
 export async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  app.use(helmet()); // by lasiru
+
   app.use(cookieParser());
 
   // Ensure uploads directory exists (handle both local and cloud storage)
@@ -63,13 +66,14 @@ export async function bootstrap() {
   // Serve static files from uploads directory
   app.use('/uploads', express.static(join(process.cwd(), 'uploads')));
 
+  // by lasiru
   const allowedOrigins = [
-    'https://dpdlab1.slt.lk:8448',      // update: 3/12/2025 DevOps change  
     'https://sdesk-frontend.vercel.app',
     'http://localhost:3000',
     'http://localhost:5173',
     'https://localhost:3000',
     'https://localhost:5173',
+    'https://dpdlab1.slt.lk', // Added production domain
   ];
 
   // Request logging middleware
@@ -82,7 +86,13 @@ export async function bootstrap() {
   });
 
   app.enableCors({
-    origin: true,
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
     allowedHeaders: [
