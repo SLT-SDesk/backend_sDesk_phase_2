@@ -402,7 +402,9 @@ export class IncidentService {
 
   async getAll(): Promise<Incident[]> {
     try {
-      return await this.incidentRepository.find();
+      const allIncidents = await this.incidentRepository.find();
+      console.log(`[Backend] Found ${allIncidents.length} incidents in getAll()`);
+      return allIncidents;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new InternalServerErrorException(
