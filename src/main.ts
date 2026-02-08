@@ -45,6 +45,29 @@ export function emitTechnicianStatusChange(
 export async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  // Set up Content Security Policy headers
+  app.use((req, res, next) => {
+    res.setHeader(
+      'Content-Security-Policy',
+      `
+      default-src 'self';
+      connect-src 'self' http://localhost:3000 http://localhost:5173 https://sdesk-frontend.vercel.app;
+      script-src 'self' https://cdnjs.cloudflare.com;
+      style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com;
+      img-src 'self' data:;
+      font-src 'self' https://cdnjs.cloudflare.com;
+      frame-ancestors 'self';
+      base-uri 'self';
+      form-action 'self';
+      `.replace(/\s{2,}/g, ' ')
+    );
+
+    // Prevent clickjacking
+     res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+
+      next();
+  });
+
   app.use(cookieParser());
 
   // Ensure uploads directory exists (handle both local and cloud storage)
@@ -82,7 +105,13 @@ export async function bootstrap() {
   });
 
   app.enableCors({
-    origin: true,
+    origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('CORS not allowed for this origin'));
+    }
+  },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
     allowedHeaders: [
