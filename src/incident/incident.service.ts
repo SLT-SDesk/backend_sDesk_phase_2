@@ -5,13 +5,12 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { NotificationsService } from '../notifications/notifications.service';  
+import { NotificationsService } from '../notifications/notifications.service';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, In, Repository } from 'typeorm';
 import { CategoryItem } from '../Categories/Entities/Categories.entity';
 import { io } from '../main';
-import { SLTUser } from '../sltusers/entities/sltuser.entity';
 import { TeamAdmin } from '../teamadmin/entities/teamadmin.entity';
 import { Technician } from '../technician/entities/technician.entity';
 import { IncidentDto } from './dto/incident.dto';
@@ -19,6 +18,7 @@ import { IncidentHistory } from './entities/incident-history.entity';
 import { Incident, IncidentStatus, IncidentPriority } from './entities/incident.entity';
 import { INCIDENT_REQUIRED_FIELDS } from './incident.interface';
 import { TechnicianPerformance } from './entities/technician-performance.entity';
+import { ErpService } from '../erp/erp.service';
 
 @Injectable()
 export class IncidentService {
@@ -37,14 +37,13 @@ export class IncidentService {
     private incidentHistoryRepository: Repository<IncidentHistory>,
     @InjectRepository(CategoryItem)
     private categoryItemRepository: Repository<CategoryItem>,
-    @InjectRepository(SLTUser)
-    private sltUserRepository: Repository<SLTUser>,
     @InjectRepository(TeamAdmin)
     private teamAdminRepository: Repository<TeamAdmin>,
     private notificationsService: NotificationsService,
     @InjectRepository(TechnicianPerformance)
     private readonly performanceRepo: Repository<TechnicianPerformance>, //
 
+    private readonly erpService: ErpService,
   ) { }
 
   //get all technician performace table data
@@ -56,15 +55,22 @@ export class IncidentService {
     }
   }
 
-  // Helper method to get display_name from slt_users table by serviceNum
+  // ✔ ERP-based display name
   private async getDisplayNameByServiceNum(serviceNum: string): Promise<string> {
     if (!serviceNum) return serviceNum;
+
     try {
-      const user = await this.sltUserRepository.findOne({
-        where: { serviceNum: serviceNum }
-      });
-      return user ? user.display_name : serviceNum;
+      const employee = await this.erpService.getEmployeeByServiceNum(serviceNum);
+
+      if (!employee) {
+        return serviceNum;
+      }
+
+      return employee.employeeName;
     } catch (error) {
+      this.logger.warn(
+        `[ERP] Failed to resolve display name for ${serviceNum}`,
+      );
       return serviceNum;
     }
   }
@@ -396,7 +402,9 @@ export class IncidentService {
 
   async getAll(): Promise<Incident[]> {
     try {
-      return await this.incidentRepository.find();
+      const allIncidents = await this.incidentRepository.find();
+      console.log(`[Backend] Found ${allIncidents.length} incidents in getAll()`);
+      return allIncidents;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new InternalServerErrorException(
@@ -2145,12 +2153,14 @@ export class IncidentService {
     try {
       // Get all performance records for this technician
       const performanceRecords = await this.performanceRepo.find({
-        where: { incidentNumber: In(
-          (await this.incidentRepository.find({ 
-            where: { handler: serviceNum },
-            select: ['incident_number']
-          })).map(inc => inc.incident_number)
-        )}
+        where: {
+          incidentNumber: In(
+            (await this.incidentRepository.find({
+              where: { handler: serviceNum },
+              select: ['incident_number']
+            })).map(inc => inc.incident_number)
+          )
+        }
       });
 
       if (performanceRecords.length === 0) {
@@ -2166,21 +2176,21 @@ export class IncidentService {
       }
 
       // Calculate response time metrics
-      const responseOnTime = performanceRecords.filter(rec => 
+      const responseOnTime = performanceRecords.filter(rec =>
         rec.responseTimeLabel === 'On Time' || rec.responseTimeLabel === 'on time'
       ).length;
 
-      const totalResponseTime = performanceRecords.reduce((sum, rec) => 
+      const totalResponseTime = performanceRecords.reduce((sum, rec) =>
         sum + (rec.responseTimeMinutes || 0), 0
       );
       const avgResponseTime = Math.round(totalResponseTime / performanceRecords.length);
 
       // Calculate resolution time metrics
-      const resolutionOnTime = performanceRecords.filter(rec => 
+      const resolutionOnTime = performanceRecords.filter(rec =>
         rec.resolutionTimeLabel === 'On Time' || rec.resolutionTimeLabel === 'on time'
       ).length;
 
-      const totalResolutionTime = performanceRecords.reduce((sum, rec) => 
+      const totalResolutionTime = performanceRecords.reduce((sum, rec) =>
         sum + (rec.resolutionTimeMinutes || 0), 0
       );
       const avgResolutionTime = Math.round(totalResolutionTime / 60); // Convert to hours
