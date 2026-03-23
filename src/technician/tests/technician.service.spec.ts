@@ -80,6 +80,7 @@ describe('TechnicianService', () => {
     findOne: jest.fn(),
     delete: jest.fn(),
     update: jest.fn(),
+    query: jest.fn(),
     createQueryBuilder: jest.fn(() => mockQueryBuilder),
   };
 
@@ -247,23 +248,48 @@ describe('TechnicianService', () => {
 
   describe('deleteTechnician', () => {
     it('should delete a technician', async () => {
+      // Mock findOne to return the technician (for existence check)
+      mockRepo.findOne.mockResolvedValueOnce({ ...mockTechnician });
+      // Mock query to delete sessions
+      mockRepo.query.mockResolvedValueOnce(undefined);
+      // Mock delete to succeed
+      mockRepo.delete.mockResolvedValueOnce({ affected: 1, raw: {} });
+
       const result = await service.deleteTechnician('SN123');
+
+      // Verify the flow: findOne -> query (sessions) -> delete
+      expect(repo.findOne).toHaveBeenCalledWith({ where: { serviceNum: 'SN123' } });
+      expect(repo.query).toHaveBeenCalledWith(
+        'DELETE FROM sessions WHERE technician_service_number = $1',
+        ['SN123'],
+      );
       expect(repo.delete).toHaveBeenCalledWith({ serviceNum: 'SN123' });
       expect(result).toBeUndefined();
     });
 
-    it('should throw NotFoundException if affected = 0', async () => {
-      mockRepo.delete.mockResolvedValue({ affected: 0, raw: {} });
+    it('should throw NotFoundException if technician does not exist', async () => {
+      // Mock findOne to return null (technician not found)
+      mockRepo.findOne.mockResolvedValueOnce(null);
+
       await expect(service.deleteTechnician('SN404')).rejects.toThrow(
         NotFoundException,
       );
       await expect(service.deleteTechnician('SN404')).rejects.toThrow(
         'Technician with Service Number "SN404" not found.',
       );
+      // Should not call query or delete if technician not found
+      expect(repo.query).not.toHaveBeenCalled();
+      expect(repo.delete).not.toHaveBeenCalled();
     });
 
     it('should throw InternalServerErrorException on error', async () => {
-      mockRepo.delete.mockRejectedValue(new Error('Delete failed'));
+      // Mock findOne to return the technician
+      mockRepo.findOne.mockResolvedValueOnce({ ...mockTechnician });
+      // Mock query to succeed
+      mockRepo.query.mockResolvedValueOnce(undefined);
+      // Mock delete to fail
+      mockRepo.delete.mockRejectedValueOnce(new Error('Delete failed'));
+
       await expect(service.deleteTechnician('SN123')).rejects.toThrow(
         InternalServerErrorException,
       );
