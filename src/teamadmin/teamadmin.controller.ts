@@ -18,12 +18,19 @@ import { JwtAuthGuard } from '../middlewares/jwt-auth.guard';
 import { RolesGuard } from '../middlewares/roles.guard';
 import { Roles } from '../middlewares/roles.decorator';
 import { Req } from '@nestjs/common';
+// new imports for roles
+import { UserRoleService } from '../user-role/user-role.service';
+import { UserRoleEnum } from '../user-role/entities/user-role.entity';
 
 @Controller()
 export class TeamAdminController {
   private readonly logger = new Logger(TeamAdminController.name);
 
-  constructor(private readonly teamAdminService: TeamAdminService) { }
+  constructor(
+    private readonly teamAdminService: TeamAdminService,
+    private readonly userRoleService: UserRoleService, // ensure role table updated
+  ) { }
+
 
   @Post('admin/:teamId')
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -33,7 +40,19 @@ export class TeamAdminController {
     @Body() teamAdminDto: TeamAdminDto,
   ): Promise<TeamAdmin> {
     try {
-      return await this.teamAdminService.createTeamAdmin(teamAdminDto, teamId);
+      const created = await this.teamAdminService.createTeamAdmin(teamAdminDto, teamId);
+
+      // also assign role so authentication recognizes this user as an admin
+      try {
+        await this.userRoleService.assignRole(
+          teamAdminDto.serviceNumber,
+          UserRoleEnum.ADMIN,
+        );
+      } catch (assignErr) {
+        console.error('Unable to assign user role for new admin', assignErr);
+      }
+
+      return created;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new HttpException(

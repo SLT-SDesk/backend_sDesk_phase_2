@@ -4,10 +4,12 @@ import { TeamAdminController } from '../teamadmin.controller';
 import { TeamAdminService } from '../teamadmin.service';
 import { TeamAdmin } from '../entities/teamadmin.entity';
 import { TeamAdminDto } from '../dto/teamadmin-dto';
+import { UserRoleService } from '../../user-role/user-role.service';
 
 describe('TeamAdminController', () => {
   let controller: TeamAdminController;
   let service: TeamAdminService;
+  let mockUserRoleService: Partial<import('../../user-role/user-role.service').UserRoleService>;
   let loggerSpy: jest.SpyInstance;
 
   const mockTeamAdmin: TeamAdmin = {
@@ -63,11 +65,16 @@ describe('TeamAdminController', () => {
           provide: TeamAdminService,
           useValue: mockTeamAdminService,
         },
+        {
+          provide: UserRoleService,
+          useValue: { assignRole: jest.fn() },
+        },
       ],
     }).compile();
 
     controller = module.get<TeamAdminController>(TeamAdminController);
     service = module.get<TeamAdminService>(TeamAdminService);
+    mockUserRoleService = module.get<UserRoleService>(UserRoleService);
   });
 
   afterEach(() => {
@@ -88,6 +95,10 @@ describe('TeamAdminController', () => {
       expect(mockTeamAdminService.createTeamAdmin).toHaveBeenCalledWith(
         mockTeamAdminDto,
         'team-123',
+      );
+      expect(mockUserRoleService.assignRole).toHaveBeenCalledWith(
+        mockTeamAdminDto.serviceNumber,
+        expect.any(String),
       );
       expect(result).toEqual(mockTeamAdmin);
     });
