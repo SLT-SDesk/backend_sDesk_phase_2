@@ -257,6 +257,8 @@ export class AuthController {
             teamId: admin.teamId,     // ✅ from team_admin table
             teamName: admin.teamName, // ✅ from team_admin table
             active: admin.active,
+            designation: payload.designation,
+            gradeName: payload.gradeName,
           },
         };
       }
@@ -269,7 +271,15 @@ export class AuthController {
           payload.serviceNum,
         );
         if (technician) {
-          return { success: true, user: { ...technician, role: 'technician' } };
+          return { 
+            success: true, 
+            user: { 
+              ...technician, 
+              role: 'technician',
+              designation: payload.designation,
+              gradeName: payload.gradeName,
+            } 
+          };
         } else {
           return {
             success: false,

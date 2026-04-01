@@ -38,4 +38,5 @@ export interface JwtPayload {
   exp?: number; // Expiration time
   iat?: number; // Issued at time
   designation?: string;
+  gradeName?: string;
 }
