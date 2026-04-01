@@ -170,7 +170,7 @@ export class AuthService {
         if (shouldCallErp) {
           console.log('Calling ERP with service number:', serviceNum);
 
-          employee = await this.erpService.getEmployeeByServiceNum(serviceNum);
+          employee = await this.erpService.getEmployeeDetailsForServiceNo(serviceNum);
 
           console.log('ERP EMPLOYEE:', employee);
 
@@ -197,13 +197,15 @@ export class AuthService {
           );
         }
 
-        // Generate JWT tokens new**s
+        // Generate JWT tokens including employee details for priority logic
         const payload: JwtPayload = {
           serviceNum: finalServiceNum,
           name: finalDisplayName,
           email: finalEmail,
           role,
           contactNumber: finalContactNumber,
+          designation: employee?.designation,
+          gradeName: employee?.gradeName,
         };
 
         const accessToken = sign(

@@ -1,63 +1,70 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { Injectable } from '@nestjs/common';
 import axios from 'axios';
 import { ErpEmployee } from './interface/erp-employee.interface';
 
 @Injectable()
 export class ErpService {
-  private readonly url: string;
-  private readonly username: string;
-  private readonly password: string;
+  constructor() {}
 
-  constructor(private readonly configService: ConfigService) {
-    this.url =
-      this.configService.get<string>('ERP_EMPLOYEE_API_URL')!;
-    this.username = this.configService.get<string>('ERP_USERNAME')!;
-    this.password = this.configService.get<string>('ERP_PASSWORD')!;
-
-    // TEMP DEBUG (REMOVE AFTER TEST)
-  console.log('ERP ENV CHECK:', {
-    username: this.username,
-    password: this.password,
-    passwordLength: this.password?.length,
-  });
-  }
-
-  
-  async getEmployeeByServiceNum(
-    serviceNum: string,
+  /**
+   * [Rule 1 & 2 Implementation]
+   * Fetches full employee details from the SLT ERP API using service number.
+   * This matches the specific cURL command provided.
+   * @param serviceNo The employee's service number (employeeNo in payload)
+   */
+  async getEmployeeDetailsForServiceNo(
+    serviceNo: string,
   ): Promise<ErpEmployee | null> {
     try {
+      const apiUrl = 'https://oneidentitytest.slt.com.lk/ERPAPIs/api/ERPData/GetAllEmployeeDetailsForServiceNo';
+      
       const response = await axios.post(
-        this.url,
+        apiUrl,
         {
-          organizationID: 'string',
-          costCenterCode: 'string',
-          employeeNo: serviceNum,
+          organizationID: "string",
+          costCenterCode: "string",
+          employeeNo: serviceNo,
         },
         {
           headers: {
-            Accept: 'text/plain',
+            'accept': 'text/plain',
+            'UserName': 'dpuser3',
+            'Password': 'dp@sltErp#',
             'Content-Type': 'application/json',
-
-            // EXACTLY like curl
-            UserName: this.username,
-            Password: this.password,
           },
         },
       );
 
-      return response.data?.data?.[0] ?? null;
+      // Extract the first employee from the data array
+      const employeeData = response.data?.data?.[0];
+      
+      if (!employeeData) {
+        console.warn(`[ERP] No employee found for service number: ${serviceNo}`);
+        return null;
+      }
+
+      // Map API response fields to ErpEmployee interface
+      return {
+        employeeNumber: employeeData.employeeNumber,
+        employeeName: employeeData.employeeName,
+        email: employeeData.email,
+        mobileNo: employeeData.mobileNo || employeeData.mobilePhone,
+        designation: employeeData.designation,
+        gradeName: employeeData.gradeName,
+      };
     } catch (error: any) {
       console.error(
         'ERP API error:',
         error?.response?.data || error.message,
       );
 
-      throw new UnauthorizedException(
-        'Failed to fetch employee from ERP',
-      );
+      // Return null so login doesn't crash if ERP is down
+      return null;
     }
   }
 
+  // Backward compatibility alias
+  async getEmployeeByServiceNum(serviceNum: string) {
+    return this.getEmployeeDetailsForServiceNo(serviceNum);
+  }
 }
