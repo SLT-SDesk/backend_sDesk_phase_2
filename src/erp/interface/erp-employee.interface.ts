@@ -4,4 +4,5 @@ export interface ErpEmployee {
   email: string;
   mobileNo?: string;
   designation: string;
+  gradeName?: string;
 }

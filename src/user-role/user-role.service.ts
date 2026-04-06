@@ -39,4 +39,8 @@ export class UserRoleService {
 
     return this.repo.save(record);
   }
+
+  async removeRole(serviceNum: string): Promise<void> {
+    await this.repo.delete({ serviceNum });
+  }
 }

@@ -28,7 +28,6 @@ import { RolesGuard } from '../middlewares/roles.guard';
 import { Roles } from '../middlewares/roles.decorator';
 
 @Controller('categories')
-@Controller('categories')
 export class CategoryController {
   constructor(private readonly categoryService: CategoryService) {}
 
@@ -54,8 +53,6 @@ export class CategoryController {
   }
 
   @Get('main')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('user', 'admin', 'technician', 'teamLeader', 'superAdmin')
   async findAllMainCategories(): Promise<MainCategory[]> {
     try {
       return await this.categoryService.findAllMainCategories();
@@ -112,8 +109,6 @@ export class CategoryController {
   }
 
   @Get('sub')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('user', 'admin', 'technician', 'teamLeader', 'superAdmin')
   async findAllSubCategories(): Promise<SubCategory[]> {
     try {
       return await this.categoryService.findAllSubCategories();
@@ -151,8 +146,6 @@ export class CategoryController {
   }
 
   @Get('sub/by-main/:mainCategoryId')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('user', 'admin', 'technician', 'teamLeader', 'superAdmin')
   async findSubCategoriesByMainCategoryId(
     @Param('mainCategoryId') mainCategoryId: string,
   ): Promise<SubCategory[]> {
@@ -188,8 +181,6 @@ export class CategoryController {
   }
 
   @Get('item')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('user', 'admin', 'technician', 'teamLeader', 'superAdmin')
   async findAllCategoryItems(): Promise<CategoryItem[]> {
     try {
       return await this.categoryService.findAllCategoryItems();

@@ -1,7 +1,22 @@
+// Mock the AuthService to avoid issues with UserRoleService path alias
+jest.mock('../../auth/auth.service', () => ({
+  AuthService: jest.fn().mockImplementation(() => ({
+    getUserFromAccessToken: jest.fn(),
+  })),
+}));
+
+// Mock the UserRoleService
+jest.mock('../../user-role/user-role.service', () => ({
+  UserRoleService: jest.fn().mockImplementation(() => ({
+    assignRole: jest.fn(),
+  })),
+}));
+
 import { HttpException } from '@nestjs/common';
 import { TechnicianController } from '../technician.controller';
 import { TechnicianService } from '../technician.service';
 import { AuthService } from '../../auth/auth.service';
+import { UserRoleService } from '../../user-role/user-role.service';
 import { Response, Request } from 'express';
 import { Technician } from '../entities/technician.entity';
 import { Session } from '../../sessions/entities/session.entity';
@@ -10,6 +25,7 @@ describe('TechnicianController', () => {
   let controller: TechnicianController;
   let mockTechnicianService: Partial<TechnicianService>;
   let mockAuthService: Partial<AuthService>;
+  let mockUserRoleService: Partial<import('../../user-role/user-role.service').UserRoleService>;
 
   const mockTechnician: Technician = {
     id: '1',
@@ -70,9 +86,14 @@ describe('TechnicianController', () => {
       getUserFromAccessToken: jest.fn(),
     };
 
+    mockUserRoleService = {
+      assignRole: jest.fn(),
+    };
+
     controller = new TechnicianController(
       mockTechnicianService as TechnicianService,
       mockAuthService as AuthService,
+      mockUserRoleService as any,
     );
   });
 
@@ -192,6 +213,10 @@ describe('TechnicianController', () => {
       expect(mockAuthService.getUserFromAccessToken).toHaveBeenCalledWith('token');
       expect(mockTechnicianService.createTechnician).toHaveBeenCalledWith(
         expect.objectContaining({ ...dto, active: true }),
+      );
+      expect(mockUserRoleService.assignRole).toHaveBeenCalledWith(
+        'T1',
+        expect.any(String),
       );
       expect((res.json as jest.Mock).mock.calls.length).toBe(1);
       expect(res.json).toHaveBeenCalledWith(created);

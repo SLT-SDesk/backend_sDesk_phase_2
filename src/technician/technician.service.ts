@@ -95,12 +95,23 @@ export class TechnicianService {
   // Delete technician by service number
   async deleteTechnician(serviceNum: string): Promise<void> {
     try {
-      const result = await this.technicianRepo.delete({ serviceNum });
-      if (result.affected === 0) {
+      // First, verify the technician exists
+      const technician = await this.technicianRepo.findOne({ where: { serviceNum } });
+      if (!technician) {
         throw new NotFoundException(
           `Technician with Service Number "${serviceNum}" not found.`,
         );
       }
+      
+      // Delete associated sessions first (cascade delete)
+      // Sessions reference technicians, so we need to remove them first
+      await this.technicianRepo.query(
+        'DELETE FROM sessions WHERE technician_service_number = $1',
+        [serviceNum],
+      );
+      
+      // Now delete the technician
+      await this.technicianRepo.delete({ serviceNum });
     } catch (error) {
       if (error instanceof NotFoundException) throw error;
       throw new InternalServerErrorException('Failed to delete technician.');
