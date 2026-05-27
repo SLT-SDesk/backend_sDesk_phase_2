@@ -16,14 +16,12 @@ export class ErpService {
     serviceNo: string,
   ): Promise<ErpEmployee | null> {
     try {
-      const apiUrl = 'https://oneidentitytest.slt.com.lk/ERPAPIs/api/ERPData/GetAllEmployeeDetailsForServiceNo';
+      const apiUrl = 'https://oneidentitytest.slt.com.lk/ERPAPIs/api/ERPData/GetEmployeeDetailsByServiceNoOrEmail';
       
       const response = await axios.post(
         apiUrl,
         {
-          organizationID: "string",
-          costCenterCode: "string",
-          employeeNo: serviceNo,
+          userInput: serviceNo,
         },
         {
           headers: {
