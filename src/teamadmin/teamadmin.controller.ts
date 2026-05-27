@@ -65,12 +65,12 @@ export class TeamAdminController {
   @Put('admin/:id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('superAdmin')
-  async updateTeamAdminByTeamId(
+  async updateTeamAdmin(
     @Param('id') id: string,
     @Body() teamAdminDto: TeamAdminDto,
   ): Promise<TeamAdmin> {
     try {
-      return await this.teamAdminService.updateTeamAdminByTeamId(
+      return await this.teamAdminService.updateTeamAdmin(
         id,
         teamAdminDto,
       );
@@ -89,11 +89,11 @@ export class TeamAdminController {
   @Delete('admin/:id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('superAdmin')
-  async deleteTeamAdminByTeamId(@Param('id') id: string) {
+  async deleteTeamAdmin(@Param('id') id: string) {
     try {
-      await this.teamAdminService.removeTeamAdminByTeamId(id);
+      await this.teamAdminService.removeTeamAdmin(id);
       return {
-        message: `Team admin with teamId ${id} successfully deleted`,
+        message: `Team admin with ID ${id} successfully deleted`,
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
