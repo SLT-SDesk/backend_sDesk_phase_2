@@ -65,5 +65,9 @@ export class IncidentDto {
 
   @IsBoolean()
   @IsOptional()
+  automaticallyAssignForTier3?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
   assignForTeamAdmin?: boolean;
 }

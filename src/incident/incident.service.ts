@@ -28,6 +28,8 @@ export class IncidentService {
   private teamAssignmentIndex: Map<string, number> = new Map();
   // Tier2 round-robin assignment tracking
   private tier2AssignmentIndex: Map<string, number> = new Map();
+  // Tier3 round-robin assignment tracking
+  private tier3AssignmentIndex: Map<string, number> = new Map();
 
   constructor(
     @InjectRepository(Incident)
@@ -486,6 +488,7 @@ export class IncidentService {
 
       // Variables to track transfer operations for socket events
       let tier2Tech: Technician | null = null;
+      let tier3Tech: Technician | null = null;
       let teamAdmin: TeamAdmin | null = null;
       let reassignedTechnician: Technician | null = null; // Track category-based reassignment
 
@@ -493,8 +496,7 @@ export class IncidentService {
       const isClosingIncident = incidentDto.status === IncidentStatus.CLOSED && originalStatus !== IncidentStatus.CLOSED;
 
       //---------------------------------------------- this one -------
-      const isTransferOperation = (incidentDto.automaticallyAssignForTier2 || incidentDto.assignForTeamAdmin) &&
-        incidentDto.handler && incidentDto.handler !== originalHandler;
+      const isTransferOperation = !!(incidentDto.automaticallyAssignForTier2 || incidentDto.automaticallyAssignForTier3 || incidentDto.assignForTeamAdmin);
 
       this.logger.log(`[UPDATE] Incident ${incident_number}: isClosing=${isClosingIncident}, isTransfer=${isTransferOperation}`);
 
@@ -638,6 +640,7 @@ export class IncidentService {
           incidentDto.handler = null; // Clear handler since no one is assigned
           incidentDto.status = IncidentStatus.PENDING_ASSIGNMENT; // Set to pending status
           incidentDto.automaticallyAssignForTier2 = false;
+          incidentDto.automaticallyAssignForTier3 = false;
           incidentDto.assignForTeamAdmin = false;
 
           this.logger.log(`[CATEGORY-CHANGE-PENDING] Incident ${incident_number} set to pending assignment due to category change to '${incidentDto.category}' - no active technicians available`);
@@ -647,6 +650,7 @@ export class IncidentService {
 
           incidentDto.handler = assignedTechnician.serviceNum;
           incidentDto.automaticallyAssignForTier2 = false;
+          incidentDto.automaticallyAssignForTier3 = false;
           incidentDto.assignForTeamAdmin = false;
         }
       }
@@ -689,6 +693,47 @@ export class IncidentService {
           incidentDto.handler = null; // Clear handler since no one is assigned yet
 
           this.logger.log(`[TIER2-PENDING] Incident ${incident_number} added to Tier2 pending queue for team '${mainCategoryId || teamName}'`);
+        }
+      }
+
+      // --- Auto-assign Tier3 technician if requested ---
+      if (incidentDto.automaticallyAssignForTier3) {
+        console.log('🔍 Starting Tier3 assignment process...');
+
+        // Find CategoryItem by name (category)
+        const categoryItem = await this.categoryItemRepository.findOne({
+          where: { name: incidentDto.category || incident.category },
+          relations: ['subCategory', 'subCategory.mainCategory'],
+        });
+
+        if (!categoryItem) {
+          throw new BadRequestException(
+            `Category '${incidentDto.category || incident.category}' not found`,
+          );
+        }
+
+        const mainCategoryId = categoryItem.subCategory?.mainCategory?.id;
+        const teamName = categoryItem.subCategory?.mainCategory?.name;
+
+        // Try to assign to active Tier3 technician
+        const tier3Result = await this.tryAssignToTier3Technician(
+          mainCategoryId,
+          teamName,
+          incident.category
+        );
+
+        if (tier3Result.success && tier3Result.technician) {
+          // Successfully assigned to active Tier3 technician
+          tier3Tech = tier3Result.technician;
+          incidentDto.handler = tier3Tech.serviceNum;
+          console.log(`🎯 Successfully assigned to active Tier3 technician: ${tier3Tech.serviceNum}`);
+        } else {
+          // No active Tier3 technician available - add to pending queue
+          console.log('📋 No active Tier3 technician found. Adding to PENDING_TIER3_ASSIGNMENT queue...');
+          incidentDto.status = IncidentStatus.PENDING_TIER3_ASSIGNMENT;
+          incidentDto.handler = null; // Clear handler since no one is assigned yet
+
+          this.logger.log(`[TIER3-PENDING] Incident ${incident_number} added to Tier3 pending queue for team '${mainCategoryId || teamName}'`);
         }
       }
 
@@ -835,11 +880,13 @@ export class IncidentService {
       const handlerIdentifier = incidentDto.handler || incident.handler;
       const assignedToDisplayName = handlerIdentifier
         ? await this.getDisplayNameByServiceNum(handlerIdentifier)
-        : incidentDto.status === IncidentStatus.PENDING_TIER2_ASSIGNMENT
-          ? 'Pending Tier2 Assignment'
-          : incidentDto.status === IncidentStatus.PENDING_ASSIGNMENT
-            ? 'Pending Assignment'
-            : 'N/A';
+        : incidentDto.status === IncidentStatus.PENDING_TIER3_ASSIGNMENT
+          ? 'Pending Tier3 Assignment'
+          : incidentDto.status === IncidentStatus.PENDING_TIER2_ASSIGNMENT
+            ? 'Pending Tier2 Assignment'
+            : incidentDto.status === IncidentStatus.PENDING_ASSIGNMENT
+              ? 'Pending Assignment'
+              : 'N/A';
       const updatedByDisplayName = await this.getDisplayNameByServiceNum(incidentDto.update_by || incident.update_by);
 
       // --- IncidentHistory entry ---
@@ -848,11 +895,13 @@ export class IncidentService {
       history.status = incidentDto.status || incident.status;
       history.assignedTo = assignedToDisplayName;
       history.updatedBy = updatedByDisplayName;
-      history.comments = incidentDto.status === IncidentStatus.PENDING_TIER2_ASSIGNMENT
-        ? 'Incident moved to Tier2 pending queue - no active Tier2 technicians available'
-        : incidentDto.status === IncidentStatus.PENDING_ASSIGNMENT
-          ? 'Incident moved to pending queue - no active technicians available for the new category'
-          : incidentDto.description || incident.description || '';
+      history.comments = incidentDto.status === IncidentStatus.PENDING_TIER3_ASSIGNMENT
+        ? 'Incident moved to Tier3 pending queue - no active Tier3 technicians available'
+        : incidentDto.status === IncidentStatus.PENDING_TIER2_ASSIGNMENT
+          ? 'Incident moved to Tier2 pending queue - no active Tier2 technicians available'
+          : incidentDto.status === IncidentStatus.PENDING_ASSIGNMENT
+            ? 'Incident moved to pending queue - no active technicians available for the new category'
+            : incidentDto.description || incident.description || '';
       history.category = incidentDto.category || incident.category;
       history.location = incidentDto.location || incident.location;
       history.attachment = incidentDto.attachmentFilename || '';
@@ -965,11 +1014,15 @@ export class IncidentService {
       //************technician performance tracking ending */
 
       // --- EMIT SOCKET EVENTS FOR TRANSFERS ---
-      // Check if this was a Tier2 transfer, team admin assignment, category-based reassignment, or manual reassignment
+      // Check if this was a Tier2/Tier3 transfer, team admin assignment, category-based reassignment, or manual reassignment
       if (incidentDto.automaticallyAssignForTier2 && tier2Tech) {
         // This was a Tier2 transfer
         this.emitIncidentSocketEvents(updatedIncident, 'transferred');
         this.logger.log(`[SOCKET] Emitted transfer event for incident ${updatedIncident.incident_number} to Tier2 technician ${tier2Tech.serviceNum}`);
+      } else if (incidentDto.automaticallyAssignForTier3 && tier3Tech) {
+        // This was a Tier3 transfer
+        this.emitIncidentSocketEvents(updatedIncident, 'transferred');
+        this.logger.log(`[SOCKET] Emitted transfer event for incident ${updatedIncident.incident_number} to Tier3 technician ${tier3Tech.serviceNum}`);
       } else if (incidentDto.assignForTeamAdmin && teamAdmin) {
         // This was a team admin assignment
         this.emitIncidentSocketEvents(updatedIncident, 'transferred');
@@ -1011,6 +1064,14 @@ export class IncidentService {
             this.tryAssignPendingTier2Incidents()
               .catch(error => {
                 this.logger.error(`[TIER2-AUTO-ASSIGNMENT] Failed to assign pending Tier2 incidents: ${error.message}`);
+              });
+          });
+
+          // Also trigger Tier3 pending assignment check
+          setImmediate(() => {
+            this.tryAssignPendingTier3Incidents()
+              .catch(error => {
+                this.logger.error(`[TIER3-AUTO-ASSIGNMENT] Failed to assign pending Tier3 incidents: ${error.message}`);
               });
           });
         }
@@ -1212,14 +1273,20 @@ export class IncidentService {
       order: { update_on: 'ASC' }, // Process oldest first
     });
 
-    const totalPending = pendingIncidents.length + pendingTier2Incidents.length;
+    // Handle Tier3 pending assignments
+    const pendingTier3Incidents = await this.incidentRepository.find({
+      where: { status: IncidentStatus.PENDING_TIER3_ASSIGNMENT },
+      order: { update_on: 'ASC' }, // Process oldest first
+    });
+
+    const totalPending = pendingIncidents.length + pendingTier2Incidents.length + pendingTier3Incidents.length;
 
     if (totalPending === 0) {
       this.logger.log('No pending incidents to assign.');
       return 0;
     }
 
-    this.logger.log(`Found ${pendingIncidents.length} regular pending incidents and ${pendingTier2Incidents.length} Tier2 pending incidents.`);
+    this.logger.log(`Found ${pendingIncidents.length} regular pending incidents, ${pendingTier2Incidents.length} Tier2 pending incidents, and ${pendingTier3Incidents.length} Tier3 pending incidents.`);
     let assignmentsCount = 0;
 
     // Process regular pending incidents
@@ -1247,6 +1314,21 @@ export class IncidentService {
       } catch (error) {
         this.logger.error(
           `Failed to process Tier2 incident ${incident.incident_number}: ${error.message}`,
+          error.stack,
+        );
+      }
+    }
+
+    // Process Tier3 pending incidents
+    for (const incident of pendingTier3Incidents) {
+      try {
+        const assigned = await this.assignPendingTier3Incident(incident);
+        if (assigned) {
+          assignmentsCount++;
+        }
+      } catch (error) {
+        this.logger.error(
+          `Failed to process Tier3 incident ${incident.incident_number}: ${error.message}`,
           error.stack,
         );
       }
@@ -2088,6 +2170,257 @@ export class IncidentService {
 
     this.logger.log(
       `[TIER2-PENDING] Successfully assigned incident ${incident.incident_number} to Tier2 technician ${tier2Result.technician.serviceNum}.`,
+    );
+
+    return true;
+  }
+
+  // ------------------- TIER3 ASSIGNMENT METHODS ------------------- //
+
+  /**
+   * Try to assign incident to an active Tier3 technician
+   */
+  private async tryAssignToTier3Technician(
+    mainCategoryId: any,
+    teamName: string,
+    category: string
+  ): Promise<{ success: boolean; technician?: Technician; message?: string }> {
+    let tier3Tech: Technician | null = null;
+    const tierVariants = ['Tier3', 'tier3'];
+    const candidates: Technician[] = [];
+
+    // Search by different combinations of team identifiers
+    const teamIdentifiers = [
+      mainCategoryId?.toString(),
+      mainCategoryId,
+      teamName,
+      teamName?.toString(),
+    ].filter(Boolean);
+
+    for (const team of teamIdentifiers) {
+      for (const tier of tierVariants) {
+        if (!team) continue;
+
+        // Try matching both team and teamId fields
+        const foundByTeam = await this.technicianRepository.find({
+          where: { team: team, tier: tier, active: true },
+        });
+
+        const foundByTeamId = await this.technicianRepository.find({
+          where: { teamId: team, tier: tier, active: true },
+        });
+
+        // Combine results and remove duplicates
+        const allFound = [...foundByTeam, ...foundByTeamId];
+        const uniqueFound = allFound.filter((tech, index, self) =>
+          index === self.findIndex(t => t.serviceNum === tech.serviceNum)
+        );
+
+        if (uniqueFound.length > 0) {
+          candidates.push(...uniqueFound);
+        }
+      }
+    }
+
+    // Remove duplicates from final candidates array
+    const uniqueCandidates = candidates.filter((tech, index, self) =>
+      index === self.findIndex(t => t.serviceNum === tech.serviceNum)
+    );
+
+    if (uniqueCandidates.length === 0) {
+      return {
+        success: false,
+        message: `No active Tier3 technician found for team '${mainCategoryId || teamName}' (category: ${category})`
+      };
+    }
+
+    // Filter candidates based on skills for the incident category
+    const skilledCandidates: Technician[] = [];
+
+    // Create a temporary incident object to check skills
+    const tempIncident = { category } as Incident;
+
+    this.logger.log(`[SKILL-CHECK] Checking skills for ${uniqueCandidates.length} Tier3 candidates for category '${category}'`);
+
+    for (const candidate of uniqueCandidates) {
+      const isSkilled = await this.isTechnicianSkilledForIncident(candidate, tempIncident);
+      if (isSkilled) {
+        skilledCandidates.push(candidate);
+        this.logger.log(`[SKILL-CHECK] Technician ${candidate.serviceNum} is skilled for category '${category}'`);
+      } else {
+        this.logger.log(`[SKILL-CHECK] Technician ${candidate.serviceNum} is NOT skilled for category '${category}'`);
+      }
+    }
+
+    this.logger.log(`[SKILL-CHECK] Found ${skilledCandidates.length} skilled Tier3 technicians out of ${uniqueCandidates.length} candidates`);
+
+    if (skilledCandidates.length === 0) {
+      return {
+        success: false,
+        message: `No skilled Tier3 technician found for team '${mainCategoryId || teamName}' with category '${category}'`
+      };
+    }
+
+    // Apply workload-based round-robin selection on skilled candidates
+    const teamKey = `${mainCategoryId || teamName}_Tier3`;
+    tier3Tech = await this.selectTier3TechnicianWithRoundRobin(skilledCandidates, teamKey);
+
+    if (!tier3Tech) {
+      return {
+        success: false,
+        message: `All skilled Tier3 technicians for team '${mainCategoryId || teamName}' are at max capacity (3 incidents each)`
+      };
+    }
+
+    return { success: true, technician: tier3Tech };
+  }
+
+  /**
+   * Select Tier3 technician using round-robin with workload consideration
+   */
+  private async selectTier3TechnicianWithRoundRobin(
+    availableTechnicians: Technician[],
+    teamKey: string
+  ): Promise<Technician | null> {
+    if (availableTechnicians.length === 1) {
+      // Single technician - check workload only
+      const singleTech = availableTechnicians[0];
+      const activeWorkload = await this.incidentRepository.count({
+        where: {
+          handler: singleTech.serviceNum,
+          status: In([IncidentStatus.OPEN, IncidentStatus.HOLD, IncidentStatus.IN_PROGRESS])
+        },
+      });
+
+      if (activeWorkload < 3) {
+        this.logger.log(`[TIER3-ASSIGNMENT] Single Tier3 technician ${singleTech.serviceNum} available with workload ${activeWorkload}/3`);
+        return singleTech;
+      } else {
+        this.logger.log(`[TIER3-ASSIGNMENT] Single Tier3 technician ${singleTech.serviceNum} at max capacity (${activeWorkload}/3)`);
+        return null;
+      }
+    }
+
+    // Multiple technicians - use round-robin with workload filtering
+    const currentIndex = this.tier3AssignmentIndex.get(teamKey) || 0;
+    let attemptCount = 0;
+    let selectedIndex = currentIndex;
+
+    // Try round-robin starting from current index
+    while (attemptCount < availableTechnicians.length) {
+      const candidateTech = availableTechnicians[selectedIndex];
+      const activeWorkload = await this.incidentRepository.count({
+        where: {
+          handler: candidateTech.serviceNum,
+          status: In([IncidentStatus.OPEN, IncidentStatus.HOLD, IncidentStatus.IN_PROGRESS])
+        },
+      });
+
+      // Check if this technician has capacity
+      if (activeWorkload < 3) {
+        // Update round-robin index for next assignment
+        const nextIndex = (selectedIndex + 1) % availableTechnicians.length;
+        this.tier3AssignmentIndex.set(teamKey, nextIndex);
+        this.logger.log(`[TIER3-ASSIGNMENT] Round-robin assigned to Tier3 technician ${candidateTech.serviceNum} with workload ${activeWorkload}/3 (index: ${selectedIndex})`);
+        return candidateTech;
+      }
+
+      // Move to next technician in round-robin
+      selectedIndex = (selectedIndex + 1) % availableTechnicians.length;
+      attemptCount++;
+    }
+
+    this.logger.log(`[TIER3-ASSIGNMENT] All ${availableTechnicians.length} Tier3 technicians are at max capacity (3 incidents each)`);
+    return null;
+  }
+
+  /**
+   * Try to assign pending Tier3 incidents when technicians become available
+   */
+  private async tryAssignPendingTier3Incidents(): Promise<void> {
+    this.logger.log('[TIER3-PENDING] Checking for pending Tier3 incidents to assign...');
+
+    const pendingTier3Incidents = await this.incidentRepository.find({
+      where: { status: IncidentStatus.PENDING_TIER3_ASSIGNMENT },
+      order: { update_on: 'ASC' }, // Oldest first
+    });
+
+    if (pendingTier3Incidents.length === 0) {
+      this.logger.log('[TIER3-PENDING] No pending Tier3 incidents found.');
+      return;
+    }
+
+    this.logger.log(`[TIER3-PENDING] Found ${pendingTier3Incidents.length} pending Tier3 incidents.`);
+    let assignmentsCount = 0;
+
+    for (const incident of pendingTier3Incidents) {
+      try {
+        const assigned = await this.assignPendingTier3Incident(incident);
+        if (assigned) {
+          assignmentsCount++;
+        }
+      } catch (error) {
+        this.logger.error(
+          `[TIER3-PENDING] Failed to process incident ${incident.incident_number}: ${error.message}`,
+          error.stack,
+        );
+      }
+    }
+
+    this.logger.log(
+      `[TIER3-PENDING] Completed assignment task. Assigned ${assignmentsCount} Tier3 incidents. ${pendingTier3Incidents.length - assignmentsCount} still pending.`,
+    );
+  }
+
+  /**
+   * Assign a specific pending Tier3 incident
+   */
+  private async assignPendingTier3Incident(incident: Incident): Promise<boolean> {
+    const categoryItem = await this.categoryItemRepository.findOne({
+      where: { name: incident.category },
+      relations: ['subCategory', 'subCategory.mainCategory'],
+    });
+
+    if (!categoryItem?.subCategory?.mainCategory) {
+      this.logger.warn(
+        `[TIER3-PENDING] Could not find team for category '${incident.category}' on incident ${incident.incident_number}. Skipping.`,
+      );
+      return false;
+    }
+
+    const mainCategoryId = categoryItem.subCategory.mainCategory.id;
+    const teamName = categoryItem.subCategory.mainCategory.name;
+
+    // Try to assign to active Tier3 technician
+    const tier3Result = await this.tryAssignToTier3Technician(
+      mainCategoryId,
+      teamName,
+      incident.category
+    );
+
+    if (!tier3Result.success || !tier3Result.technician) {
+      this.logger.log(
+        `[TIER3-PENDING] ${tier3Result.message || 'No Tier3 technician available'} for incident ${incident.incident_number}.`,
+      );
+      return false;
+    }
+
+    // Assign the incident
+    incident.handler = tier3Result.technician.serviceNum;
+    incident.status = IncidentStatus.OPEN;
+    await this.incidentRepository.save(incident);
+
+    await this.createIncidentHistory(
+      incident,
+      tier3Result.technician.serviceNum,
+      'Incident automatically assigned from Tier3 pending queue.'
+    );
+
+    // Emit socket events for live updates
+    this.emitIncidentSocketEvents(incident, 'assigned');
+
+    this.logger.log(
+      `[TIER3-PENDING] Successfully assigned incident ${incident.incident_number} to Tier3 technician ${tier3Result.technician.serviceNum}.`,
     );
 
     return true;
