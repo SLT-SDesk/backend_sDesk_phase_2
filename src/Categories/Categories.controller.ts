@@ -29,7 +29,7 @@ import { Roles } from '../middlewares/roles.decorator';
 
 @Controller('categories')
 export class CategoryController {
-  constructor(private readonly categoryService: CategoryService) {}
+  constructor(private readonly categoryService: CategoryService) { }
 
   // Main Category Endpoints
   @Post('main')
@@ -217,3 +217,5 @@ export class CategoryController {
     }
   }
 }
+
+//test
