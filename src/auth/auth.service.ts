@@ -9,7 +9,6 @@ import { sign, decode, verify } from 'jsonwebtoken';
 import { User, JwtPayload, Role } from './interface/auth.interface';
 import { ErpEmployee } from 'src/erp/interface/erp-employee.interface';
 
-// Define DecodedIdToken interface to match expected id_token structure
 interface DecodedIdToken {
   oid?: string;
   preferred_username?: string;
@@ -84,8 +83,6 @@ export class AuthService {
         { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
       );
 
-
-
       const id_token: string | undefined = (
         tokenResponse.data as { id_token?: string }
       ).id_token;
@@ -94,7 +91,6 @@ export class AuthService {
       ).access_token;
       let contactNumber: string | undefined = undefined;
 
-      // Fetch contact number from Microsoft Graph API if access_token is available
       if (access_token) {
         try {
           const graphResponse = await axios.get(
@@ -103,7 +99,6 @@ export class AuthService {
               headers: { Authorization: `Bearer ${access_token}` },
             },
           );
-          // Try to get mobilePhone or businessPhones[0]
           const data = graphResponse.data as {
             mobilePhone?: string;
             businessPhones?: string[];
@@ -126,7 +121,7 @@ export class AuthService {
           );
         }
       }
-      //changed new**s
+
       if (id_token) {
         const decodedIdToken = decode(id_token) as DecodedIdToken;
         const azureId = this.getStringFromDecoded(decodedIdToken, 'oid');
@@ -138,7 +133,6 @@ export class AuthService {
         console.log('Decoded ID token:', decodedIdToken);
         console.log('Resolved email:', email);
 
-        // changed new**s
         const name = this.getStringFromDecoded(decodedIdToken, 'name');
         let serviceNum = '';
 
@@ -146,21 +140,17 @@ export class AuthService {
           const prefix = email.split('@')[0];
           serviceNum = prefix;
           console.log('Extracted serviceNum from email:', serviceNum);
-
-
         }
 
         if (!azureId || !email) {
           throw new UnauthorizedException('Missing user info in id_token');
         }
 
-        // Canonical identity values
         let finalServiceNum = serviceNum;
         let finalDisplayName = name;
         let finalEmail = email;
         let finalContactNumber = contactNumber;
 
-        // ERP integration (DEV + PROD)
         let employee: ErpEmployee | null = null;
 
         const shouldCallErp =
@@ -169,35 +159,32 @@ export class AuthService {
 
         if (shouldCallErp) {
           console.log('Calling ERP with service number:', serviceNum);
-
-          employee = await this.erpService.getEmployeeDetailsForServiceNo(serviceNum);
-
-          console.log('ERP EMPLOYEE:', employee);
-
-          if (!employee) {
-            throw new UnauthorizedException(
-              `Employee not found in ERP for service number ${serviceNum}`,
-            );
+          try {
+            employee = await this.erpService.getEmployeeDetailsForServiceNo(serviceNum);
+            console.log('ERP EMPLOYEE:', employee);
+          } catch (erpError) {
+            console.error('ERP Service call threw an error:', erpError);
           }
 
-          finalServiceNum = employee.employeeNumber;
-          finalDisplayName = employee.employeeName;
-          finalEmail = employee.email?.trim() || email;
-          finalContactNumber = employee.mobileNo;
+          if (!employee) {
+            console.warn(`Warning: Employee not found in ERP for ${serviceNum}, falling back to token details.`);
+          } else {
+            finalServiceNum = employee.employeeNumber;
+            finalDisplayName = employee.employeeName;
+            finalEmail = employee.email?.trim() || email;
+            finalContactNumber = employee.mobileNo;
+          }
         }
 
-
-
-        // Role must use finalServiceNum
         let role = await this.userRoleService.getRoleByServiceNum(finalServiceNum);
 
         if (!role) {
+          console.error(`Database Error: No role assigned for service number ${finalServiceNum}`);
           throw new UnauthorizedException(
             `No role assigned for service number ${finalServiceNum}`,
           );
         }
 
-        // Generate JWT tokens including employee details for priority logic
         const payload: JwtPayload = {
           serviceNum: finalServiceNum,
           name: finalDisplayName,
@@ -220,8 +207,6 @@ export class AuthService {
           name: finalDisplayName,
           email: finalEmail,
         });
-
-
 
         return {
           accessToken,
@@ -266,8 +251,8 @@ export class AuthService {
 
     const payload: JwtPayload = {
       serviceNum: data.serviceNum,
-      name: data.name,     // REAL NAME
-      email: data.email,   // REAL EMAIL
+      name: data.name,
+      email: data.email,
       role,
     };
 
@@ -277,8 +262,6 @@ export class AuthService {
       { expiresIn: '15m' },
     );
   }
-
-
 
   revokeRefreshToken(refreshToken: string) {
     refreshTokensStore.delete(refreshToken);
