@@ -14,6 +14,9 @@ import { Technician } from '../../technician/entities/technician.entity';
 import { CategoryItem } from '../../Categories/Entities/Categories.entity';
 import { SLTUser } from '../../sltusers/entities/sltuser.entity';
 import { TeamAdmin } from '../../teamadmin/entities/teamadmin.entity';
+import { TechnicianPerformance } from '../entities/technician-performance.entity';
+import { NotificationsService } from '../../notifications/notifications.service';
+import { ErpService } from '../../erp/erp.service';
 
 // Mock socket.io
 jest.mock('../../main', () => ({
@@ -31,6 +34,16 @@ describe('IncidentService', () => {
   let categoryItemRepository: Repository<CategoryItem>;
   let sltUserRepository: Repository<SLTUser>;
   let teamAdminRepository: Repository<TeamAdmin>;
+  let performanceRepository: Repository<TechnicianPerformance>;
+
+  const mockNotificationsService = {
+    sendIncidentAssignmentNotification: jest.fn(),
+    sendIncidentStatusChangeNotification: jest.fn(),
+  };
+
+  const mockErpService = {
+    getEmployeeByServiceNum: jest.fn(),
+  };
 
   // Mock repositories
   const mockIncidentRepository = {
@@ -51,6 +64,7 @@ describe('IncidentService', () => {
   const mockIncidentHistoryRepository = {
     find: jest.fn(),
     save: jest.fn(),
+    findOne: jest.fn(),
   };
 
   const mockCategoryItemRepository = {
@@ -66,6 +80,13 @@ describe('IncidentService', () => {
   const mockTeamAdminRepository = {
     findOne: jest.fn(),
     find: jest.fn(),
+  };
+
+  const mockPerformanceRepository = {
+    find: jest.fn(),
+    findOne: jest.fn(),
+    create: jest.fn(),
+    save: jest.fn(),
   };
 
   // Test data
@@ -160,6 +181,18 @@ describe('IncidentService', () => {
           provide: getRepositoryToken(TeamAdmin),
           useValue: mockTeamAdminRepository,
         },
+        {
+          provide: getRepositoryToken(TechnicianPerformance),
+          useValue: mockPerformanceRepository,
+        },
+        {
+          provide: NotificationsService,
+          useValue: mockNotificationsService,
+        },
+        {
+          provide: ErpService,
+          useValue: mockErpService,
+        },
       ],
     }).compile();
 
@@ -195,6 +228,10 @@ describe('IncidentService', () => {
   });
 
   describe('create', () => {
+    beforeEach(() => {
+      mockIncidentRepository.count.mockResolvedValue(0);
+    });
+
     it('should create an incident successfully with technician assignment', async () => {
       // Arrange
       mockIncidentRepository.query.mockResolvedValue([{ value: 1 }]);
@@ -252,13 +289,13 @@ describe('IncidentService', () => {
       );
     });
 
-    it('should throw BadRequestException when sequence generation fails', async () => {
+    it('should throw InternalServerErrorException when sequence generation fails', async () => {
       // Arrange
-      mockIncidentRepository.query.mockResolvedValue([{}]);
+      mockIncidentRepository.count.mockRejectedValue(new Error('Sequence error'));
 
       // Act & Assert
       await expect(service.create(mockIncidentDto)).rejects.toThrow(
-        BadRequestException,
+        InternalServerErrorException,
       );
     });
 
@@ -581,10 +618,10 @@ describe('IncidentService', () => {
 
       // Assert
       expect(result).toBeDefined();
-      expect(mockTeamAdminRepository.findOne).toHaveBeenCalled();
+      expect(mockTeamAdminRepository.findOne).not.toHaveBeenCalled();
     });
 
-    it('should throw BadRequestException when assigning to team admin without handler', async () => {
+    it('should not throw BadRequestException when assigning to team admin without handler since disabled', async () => {
       // Arrange
       const incidentWithoutHandler = { ...mockIncident, handler: null };
       mockIncidentRepository.findOne.mockResolvedValue(incidentWithoutHandler);
@@ -593,9 +630,8 @@ describe('IncidentService', () => {
       };
 
       // Act & Assert
-      await expect(service.update('IN1', updateDto as IncidentDto)).rejects.toThrow(
-        BadRequestException,
-      );
+      const result = await service.update('IN1', updateDto as IncidentDto);
+      expect(result).toBeDefined();
     });
 
     it('should handle status change to CLOSED', async () => {
@@ -673,6 +709,90 @@ describe('IncidentService', () => {
 
       // Assert
       expect(result.status).toBe(IncidentStatus.PENDING_TIER2_ASSIGNMENT);
+    });
+
+    it('should throw BadRequestException on Tier2 assignment if status is already PENDING_TIER2_ASSIGNMENT', async () => {
+      // Arrange
+      const existingIncident = {
+        ...mockIncident,
+        status: IncidentStatus.PENDING_TIER2_ASSIGNMENT,
+        handler: null,
+      };
+      mockIncidentRepository.findOne.mockResolvedValue(existingIncident);
+      const updateDto: Partial<IncidentDto> = {
+        automaticallyAssignForTier2: true,
+      };
+
+      // Act & Assert
+      await expect(service.update('IN1', updateDto as IncidentDto)).rejects.toThrow(
+        new BadRequestException('Incident is already in the transfer queue for Tier 2.')
+      );
+    });
+
+    it('should throw BadRequestException on Tier2 assignment if handler is already Tier2/Tier3', async () => {
+      // Arrange
+      const existingIncident = {
+        ...mockIncident,
+        status: IncidentStatus.OPEN,
+        handler: 'TECH002',
+      };
+      mockIncidentRepository.findOne.mockResolvedValue(existingIncident);
+      const tier2Tech = {
+        ...mockTechnician,
+        serviceNum: 'TECH002',
+        tier: 'Tier2',
+      };
+      mockTechnicianRepository.findOne.mockResolvedValue(tier2Tech);
+      const updateDto: Partial<IncidentDto> = {
+        automaticallyAssignForTier2: true,
+      };
+
+      // Act & Assert
+      await expect(service.update('IN1', updateDto as IncidentDto)).rejects.toThrow(
+        new BadRequestException('Incident has already been processed by a Tier 2 or Tier 3 technician.')
+      );
+    });
+
+    it('should throw BadRequestException on Tier3 assignment if status is already PENDING_TIER3_ASSIGNMENT', async () => {
+      // Arrange
+      const existingIncident = {
+        ...mockIncident,
+        status: IncidentStatus.PENDING_TIER3_ASSIGNMENT,
+        handler: null,
+      };
+      mockIncidentRepository.findOne.mockResolvedValue(existingIncident);
+      const updateDto: Partial<IncidentDto> = {
+        automaticallyAssignForTier3: true,
+      };
+
+      // Act & Assert
+      await expect(service.update('IN1', updateDto as IncidentDto)).rejects.toThrow(
+        new BadRequestException('Incident is already in the transfer queue for Tier 3.')
+      );
+    });
+
+    it('should throw BadRequestException on Tier3 assignment if handler is already Tier3', async () => {
+      // Arrange
+      const existingIncident = {
+        ...mockIncident,
+        status: IncidentStatus.OPEN,
+        handler: 'TECH003',
+      };
+      mockIncidentRepository.findOne.mockResolvedValue(existingIncident);
+      const tier3Tech = {
+        ...mockTechnician,
+        serviceNum: 'TECH003',
+        tier: 'Tier3',
+      };
+      mockTechnicianRepository.findOne.mockResolvedValue(tier3Tech);
+      const updateDto: Partial<IncidentDto> = {
+        automaticallyAssignForTier3: true,
+      };
+
+      // Act & Assert
+      await expect(service.update('IN1', updateDto as IncidentDto)).rejects.toThrow(
+        new BadRequestException('Incident has already been processed by a Tier 3 technician.')
+      );
     });
   });
 
@@ -837,7 +957,8 @@ describe('IncidentService', () => {
       };
       mockIncidentRepository.find
         .mockResolvedValueOnce([pendingIncident]) // Pending incidents
-        .mockResolvedValueOnce([]); // Tier2 pending incidents
+        .mockResolvedValueOnce([]) // Tier2 pending incidents
+        .mockResolvedValueOnce([]); // Tier3 pending incidents
       mockCategoryItemRepository.findOne.mockResolvedValue(mockCategoryItem);
       mockTechnicianRepository.find.mockResolvedValue([mockTechnician]);
       mockIncidentRepository.count.mockResolvedValue(0);
@@ -860,6 +981,7 @@ describe('IncidentService', () => {
       // Arrange
       mockIncidentRepository.find
         .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
         .mockResolvedValueOnce([]);
 
       // Act
@@ -878,7 +1000,8 @@ describe('IncidentService', () => {
       };
       mockIncidentRepository.find
         .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([tier2PendingIncident]);
+        .mockResolvedValueOnce([tier2PendingIncident])
+        .mockResolvedValueOnce([]);
       mockCategoryItemRepository.findOne.mockResolvedValue(mockCategoryItem);
       const tier2Tech = { ...mockTechnician, tier: 'Tier2' };
       mockTechnicianRepository.find.mockResolvedValue([tier2Tech]);
@@ -1269,9 +1392,8 @@ describe('IncidentService', () => {
       mockTeamAdminRepository.find.mockResolvedValue([]);
 
       // Act & Assert
-      await expect(service.update('IN1', updateDto as IncidentDto)).rejects.toThrow(
-        BadRequestException,
-      );
+      const result = await service.update('IN1', updateDto as IncidentDto);
+      expect(result).toBeDefined();
     });
 
     it('should handle error during incident creation', async () => {
