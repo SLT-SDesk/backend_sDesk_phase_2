@@ -16,8 +16,8 @@ export class SmsService {
   constructor(private readonly configService: ConfigService) {}
 
   /**
-   * Normalizes destination mobile number to standard SMSC format (e.g. 94714291238).
-   * @param rawNumber The input mobile number (e.g. +94714291238, 0714291238, 94714291238)
+   * Normalizes destination mobile number to standard SMSC format (e.g. 94700000000).
+   * @param rawNumber The input mobile number (e.g. +94700000000, 0700000000, 94700000000)
    */
   normalizeMobileNumber(rawNumber: string): string | null {
     if (!rawNumber || typeof rawNumber !== 'string') {
@@ -32,11 +32,11 @@ export class SmsService {
       cleaned = cleaned.substring(1);
     }
 
-    // Remove leading '00' international prefix if present (e.g. 0094704771460 -> 94704771460)
+    // Remove leading '00' international prefix if present (e.g. 0094700000000 -> 94700000000)
     if (cleaned.startsWith('0094')) {
       cleaned = cleaned.substring(2);
     } else if (cleaned.startsWith('0') && cleaned.length === 10) {
-      // Convert local 10-digit format (e.g. 0704771460, 0714291238) to 94704771460 / 94714291238
+      // Convert local 10-digit format (e.g. 0700000000) to 94700000000
       cleaned = '94' + cleaned.substring(1);
     }
 
@@ -81,7 +81,7 @@ export class SmsService {
       return { success: false, error: invalidMsgErr };
     }
 
-    // Mask destination for safe logging (e.g., 9471***1238)
+    // Mask destination for safe logging (e.g., 9470***0000)
     const maskedDst =
       normalizedDst.length > 5
         ? `${normalizedDst.substring(0, 4)}***${normalizedDst.substring(normalizedDst.length - 4)}`
