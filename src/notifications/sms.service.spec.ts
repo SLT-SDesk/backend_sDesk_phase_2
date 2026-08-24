@@ -40,12 +40,14 @@ describe('SmsService', () => {
   });
 
   describe('normalizeMobileNumber', () => {
-    it('should normalize number with leading +', () => {
+    it('should normalize number with leading + (e.g. +94770000000 -> 94770000000)', () => {
       expect(service.normalizeMobileNumber('+94700000000')).toBe('94700000000');
+      expect(service.normalizeMobileNumber('+94770000000')).toBe('94770000000');
     });
 
-    it('should normalize local number starting with 0', () => {
+    it('should normalize local number starting with 0 (e.g. 0770000000 -> 94770000000)', () => {
       expect(service.normalizeMobileNumber('0700000000')).toBe('94700000000');
+      expect(service.normalizeMobileNumber('0770000000')).toBe('94770000000');
     });
 
     it('should normalize international prefix 0094', () => {
