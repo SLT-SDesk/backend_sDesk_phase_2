@@ -32,8 +32,11 @@ export class SmsService {
       cleaned = cleaned.substring(1);
     }
 
-    // Convert local format 07XXXXXXXX to 947XXXXXXXX
-    if (cleaned.startsWith('0') && cleaned.length === 10) {
+    // Remove leading '00' international prefix if present (e.g. 0094704771460 -> 94704771460)
+    if (cleaned.startsWith('0094')) {
+      cleaned = cleaned.substring(2);
+    } else if (cleaned.startsWith('0') && cleaned.length === 10) {
+      // Convert local 10-digit format (e.g. 0704771460, 0714291238) to 94704771460 / 94714291238
       cleaned = '94' + cleaned.substring(1);
     }
 
