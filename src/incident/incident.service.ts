@@ -123,28 +123,38 @@ export class IncidentService {
       //}
       //const incidentNumber = `IN${nextId}`;
 
+      // Check if informant service number is valid (exists in ERP database)
+      const reporterDetails = await this.erpService.getEmployeeByServiceNum(
+        incidentDto.informant,
+      );
+      if (!reporterDetails) {
+        throw new NotFoundException(
+          `User with service number ${incidentDto.informant} not found`,
+        );
+      }
+
       // $$$$$-- new change Set the date for update_on so daily counting works
       incidentDto.update_on = new Date().toISOString().split('T')[0];
 
       // [AUTO-PRIORITY] Fetch reporter details and calculate priority
       try {
-        const reporterDetails = await this.erpService.getEmployeeByServiceNum(incidentDto.informant);
-        if (reporterDetails) {
-          const autoPriority = PriorityHelper.getAutoPriority(
-            { designation: reporterDetails.designation, gradeName: reporterDetails.gradeName },
-            incidentDto
-          );
+        const autoPriority = PriorityHelper.getAutoPriority(
+          {
+            designation: reporterDetails.designation,
+            gradeName: reporterDetails.gradeName,
+          },
+          incidentDto,
+        );
 
-          // Apply auto-priority (Backend is the final authority)
-          incidentDto.priority = autoPriority;
-          this.logger.log(`[AUTO-PRIORITY] Assigned '${autoPriority}' to incident for ${incidentDto.informant}`);
-        } else {
-          // Fallback if ERP is unavailable - still apply content-based rules
-          const fallbackPriority = PriorityHelper.getAutoPriority({}, incidentDto);
-          incidentDto.priority = fallbackPriority;
-        }
+        // Apply auto-priority (Backend is the final authority)
+        incidentDto.priority = autoPriority;
+        this.logger.log(
+          `[AUTO-PRIORITY] Assigned '${autoPriority}' to incident for ${incidentDto.informant}`,
+        );
       } catch (priorityError) {
-        this.logger.error(`[AUTO-PRIORITY] Error calculating priority: ${priorityError.message}`);
+        this.logger.error(
+          `[AUTO-PRIORITY] Error calculating priority: ${priorityError.message}`,
+        );
         // Keep existing priority or default to Medium
         incidentDto.priority = incidentDto.priority || IncidentPriority.MEDIUM;
       }
