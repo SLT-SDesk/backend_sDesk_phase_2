@@ -44,8 +44,13 @@ describe('SmsService', () => {
       expect(service.normalizeMobileNumber('+94714291238')).toBe('94714291238');
     });
 
-    it('should normalize local number starting with 0', () => {
+    it('should normalize local number starting with 0 (e.g. 0704771460 or 0714291238)', () => {
       expect(service.normalizeMobileNumber('0714291238')).toBe('94714291238');
+      expect(service.normalizeMobileNumber('0704771460')).toBe('94704771460');
+    });
+
+    it('should normalize international prefix 0094', () => {
+      expect(service.normalizeMobileNumber('0094704771460')).toBe('94704771460');
     });
 
     it('should leave already normalized number unchanged', () => {
