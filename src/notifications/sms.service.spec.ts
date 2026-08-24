@@ -41,24 +41,23 @@ describe('SmsService', () => {
 
   describe('normalizeMobileNumber', () => {
     it('should normalize number with leading +', () => {
-      expect(service.normalizeMobileNumber('+94714291238')).toBe('94714291238');
+      expect(service.normalizeMobileNumber('+94700000000')).toBe('94700000000');
     });
 
-    it('should normalize local number starting with 0 (e.g. 0704771460 or 0714291238)', () => {
-      expect(service.normalizeMobileNumber('0714291238')).toBe('94714291238');
-      expect(service.normalizeMobileNumber('0704771460')).toBe('94704771460');
+    it('should normalize local number starting with 0', () => {
+      expect(service.normalizeMobileNumber('0700000000')).toBe('94700000000');
     });
 
     it('should normalize international prefix 0094', () => {
-      expect(service.normalizeMobileNumber('0094704771460')).toBe('94704771460');
+      expect(service.normalizeMobileNumber('0094700000000')).toBe('94700000000');
     });
 
     it('should leave already normalized number unchanged', () => {
-      expect(service.normalizeMobileNumber('94714291238')).toBe('94714291238');
+      expect(service.normalizeMobileNumber('94700000000')).toBe('94700000000');
     });
 
     it('should clean spaces and hyphens', () => {
-      expect(service.normalizeMobileNumber('+94 71-429 1238')).toBe('94714291238');
+      expect(service.normalizeMobileNumber('+94 70-000 0000')).toBe('94700000000');
     });
 
     it('should return null for invalid mobile numbers', () => {
@@ -76,7 +75,7 @@ describe('SmsService', () => {
       });
 
       const result = await service.sendSms(
-        '+94714291238',
+        '+94700000000',
         'Ref/No - IN2026.08.24.0001 incident is created',
       );
 
@@ -84,7 +83,7 @@ describe('SmsService', () => {
       expect(result.messageId).toBe('172450000012345');
       expect(mockedAxios.post).toHaveBeenCalledWith(
         'https://smsc.slt.lk:8093/api/sms',
-        expect.stringContaining('dst=94714291238'),
+        expect.stringContaining('dst=94700000000'),
         expect.objectContaining({
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         }),
@@ -98,7 +97,7 @@ describe('SmsService', () => {
       });
 
       const result = await service.sendSms(
-        '0714291238',
+        '0700000000',
         'Ref/No - IN2026.08.24.0001 incident is created',
       );
 
@@ -110,7 +109,7 @@ describe('SmsService', () => {
       mockedAxios.post.mockRejectedValueOnce(new Error('Network Timeout'));
 
       const result = await service.sendSms(
-        '94714291238',
+        '94700000000',
         'Ref/No - IN2026.08.24.0001 incident is closed',
       );
 
@@ -122,7 +121,7 @@ describe('SmsService', () => {
       jest.spyOn(configService, 'get').mockReturnValue(undefined);
 
       const result = await service.sendSms(
-        '94714291238',
+        '94700000000',
         'Ref/No - IN2026.08.24.0001 incident is created',
       );
 
