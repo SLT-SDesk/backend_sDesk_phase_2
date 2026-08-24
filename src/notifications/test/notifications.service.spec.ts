@@ -81,31 +81,31 @@ describe('NotificationsService', () => {
   describe('sendIncidentCreatedSms', () => {
     it('should fetch employee and send SMS when employee is found', async () => {
       mockErpService.getEmployeeDetailsForServiceNo.mockResolvedValueOnce({
-        employeeNumber: '010330',
-        mobileNo: '+94714291238',
+        employeeNumber: '000000',
+        mobileNo: '0700000000',
       });
       mockSmsService.sendSms.mockResolvedValueOnce({
         success: true,
         messageId: '12345',
       });
 
-      const res = await service.sendIncidentCreatedSms('IN2026.08.24.0001', '010330');
+      const res = await service.sendIncidentCreatedSms('IN2026.08.24.0001', '000000');
 
       expect(res).toBe(true);
-      expect(mockErpService.getEmployeeDetailsForServiceNo).toHaveBeenCalledWith('010330');
+      expect(mockErpService.getEmployeeDetailsForServiceNo).toHaveBeenCalledWith('000000');
       expect(mockSmsService.sendSms).toHaveBeenCalledWith(
-        '+94714291238',
+        '0700000000',
         'Ref/No - IN2026.08.24.0001 incident is created',
       );
     });
 
     it('should return false if employee mobile number is missing', async () => {
       mockErpService.getEmployeeDetailsForServiceNo.mockResolvedValueOnce({
-        employeeNumber: '010330',
+        employeeNumber: '000000',
         mobileNo: null,
       });
 
-      const res = await service.sendIncidentCreatedSms('IN2026.08.24.0001', '010330');
+      const res = await service.sendIncidentCreatedSms('IN2026.08.24.0001', '000000');
 
       expect(res).toBe(false);
       expect(mockSmsService.sendSms).not.toHaveBeenCalled();
@@ -114,7 +114,7 @@ describe('NotificationsService', () => {
     it('should return false if ERP lookup fails or returns null', async () => {
       mockErpService.getEmployeeDetailsForServiceNo.mockResolvedValueOnce(null);
 
-      const res = await service.sendIncidentCreatedSms('IN2026.08.24.0001', '010330');
+      const res = await service.sendIncidentCreatedSms('IN2026.08.24.0001', '000000');
 
       expect(res).toBe(false);
       expect(mockSmsService.sendSms).not.toHaveBeenCalled();
@@ -122,15 +122,15 @@ describe('NotificationsService', () => {
 
     it('should return false if SMS send fails', async () => {
       mockErpService.getEmployeeDetailsForServiceNo.mockResolvedValueOnce({
-        employeeNumber: '010330',
-        mobileNo: '+94714291238',
+        employeeNumber: '000000',
+        mobileNo: '0700000000',
       });
       mockSmsService.sendSms.mockResolvedValueOnce({
         success: false,
         error: 'SMSC Timeout',
       });
 
-      const res = await service.sendIncidentCreatedSms('IN2026.08.24.0001', '010330');
+      const res = await service.sendIncidentCreatedSms('IN2026.08.24.0001', '000000');
 
       expect(res).toBe(false);
     });
@@ -139,20 +139,20 @@ describe('NotificationsService', () => {
   describe('sendIncidentClosedSms', () => {
     it('should fetch employee and send closure SMS when employee is found', async () => {
       mockErpService.getEmployeeDetailsForServiceNo.mockResolvedValueOnce({
-        employeeNumber: '010330',
-        mobileNo: '+94714291238',
+        employeeNumber: '000000',
+        mobileNo: '0700000000',
       });
       mockSmsService.sendSms.mockResolvedValueOnce({
         success: true,
         messageId: '12346',
       });
 
-      const res = await service.sendIncidentClosedSms('IN2026.08.24.0001', '010330');
+      const res = await service.sendIncidentClosedSms('IN2026.08.24.0001', '000000');
 
       expect(res).toBe(true);
-      expect(mockErpService.getEmployeeDetailsForServiceNo).toHaveBeenCalledWith('010330');
+      expect(mockErpService.getEmployeeDetailsForServiceNo).toHaveBeenCalledWith('000000');
       expect(mockSmsService.sendSms).toHaveBeenCalledWith(
-        '+94714291238',
+        '0700000000',
         'Ref/No - IN2026.08.24.0001 incident is closed',
       );
     });
