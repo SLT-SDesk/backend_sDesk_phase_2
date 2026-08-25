@@ -1,6 +1,5 @@
-import { Column, Entity, JoinColumn, OneToMany, OneToOne, PrimaryGeneratedColumn } from 'typeorm';
-import { Session } from '../../sessions/entities/session.entity';
-import { SLTUser } from '../../sltusers/entities/sltuser.entity';
+import { Entity, Column, PrimaryGeneratedColumn,OneToOne,JoinColumn } from 'typeorm';
+import { SLTUser } from '../../sltusers/entities/sltuser.entity'; 
 
 @Entity('technicians') 
 
@@ -14,7 +13,7 @@ export class Technician {
  user: SLTUser;
 
 
- @Column({nullable: false, unique: true})
+ @Column({nullable: false})
 serviceNum: string;
 
 
@@ -56,7 +55,4 @@ serviceNum: string;
 
   @Column({})
   contactNumber: string;
-
-  @OneToMany(()=> Session, (session) => session.technician)
-  sessions: Session[];
 }

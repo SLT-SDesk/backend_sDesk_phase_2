@@ -5,6 +5,4 @@ export interface UserPayload {
   serviceNum: string;
   iat: number;
   exp: number;
-  designation?: string;
-  gradeName?: string;
 }

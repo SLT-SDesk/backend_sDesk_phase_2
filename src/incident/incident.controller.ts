@@ -31,19 +31,7 @@ import { io } from '../main';
 
 @Controller('incident')
 export class IncidentController {
-  constructor(private readonly incidentService: IncidentService) { }
-
-  //get all technician performace table data
-  @Get('all-technician-performance')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('user', 'admin', 'technician', 'teamLeader', 'superAdmin')
-  async getAllTechnicianPerformance(): Promise<any> {
-    try {
-      return await this.incidentService.getAllTechnicianPerformance();
-    } catch (error) {
-      throw new InternalServerErrorException('Failed to fetch technician performance data');
-    }
-  }
+  constructor(private readonly incidentService: IncidentService) {}
 
   // Post method
   @Post('create-incident')
@@ -87,29 +75,29 @@ export class IncidentController {
         process.env.NODE_ENV === 'production'
           ? memoryStorage() // Use memory storage for Heroku
           : diskStorage({
-            destination: (req, file, cb) => {
-              const uploadsPath = join(
-                process.cwd(),
-                'uploads',
-                'incident_attachments',
-              );
-              try {
-                if (!fs.existsSync(uploadsPath)) {
-                  fs.mkdirSync(uploadsPath, { recursive: true });
+              destination: (req, file, cb) => {
+                const uploadsPath = join(
+                  process.cwd(),
+                  'uploads',
+                  'incident_attachments',
+                );
+                try {
+                  if (!fs.existsSync(uploadsPath)) {
+                    fs.mkdirSync(uploadsPath, { recursive: true });
+                  }
+                  cb(null, uploadsPath);
+                } catch (error) {
+                  console.error('Upload directory creation failed:', error);
+                  cb(error, uploadsPath);
                 }
-                cb(null, uploadsPath);
-              } catch (error) {
-                console.error('Upload directory creation failed:', error);
-                cb(error, uploadsPath);
-              }
-            },
-            filename: (req, file, cb) => {
-              const uniqueSuffix =
-                Date.now() + '-' + Math.round(Math.random() * 1e9);
-              const filename = `${uniqueSuffix}-${file.originalname}`;
-              cb(null, filename);
-            },
-          }),
+              },
+              filename: (req, file, cb) => {
+                const uniqueSuffix =
+                  Date.now() + '-' + Math.round(Math.random() * 1e9);
+                const filename = `${uniqueSuffix}-${file.originalname}`;
+                cb(null, filename);
+              },
+            }),
       limits: {
         fileSize: 1024 * 1024, // 1MB
       },
@@ -254,33 +242,6 @@ export class IncidentController {
       throw error;
     }
   }
-
-  @Get('technician/:serviceNum/stats')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('user', 'admin', 'technician', 'teamLeader', 'superAdmin')
-  async getTechnicianStats(
-    @Param('serviceNum') serviceNum: string,
-  ): Promise<any> {
-    try {
-      return await this.incidentService.getTechnicianStats(serviceNum);
-    } catch (error) {
-      throw new InternalServerErrorException('Failed to fetch technician statistics');
-    }
-  }
-
-  @Get('technician/:serviceNum/performance')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('user', 'admin', 'technician', 'teamLeader', 'superAdmin')
-  async getTechnicianPerformance(
-    @Param('serviceNum') serviceNum: string,
-  ): Promise<any> {
-    try {
-      return await this.incidentService.getTechnicianPerformance(serviceNum);
-    } catch (error) {
-      throw new InternalServerErrorException('Failed to fetch technician performance metrics');
-    }
-  }
-
   @Post(':incident_number/update-with-attachment')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('user', 'admin', 'technician', 'teamLeader', 'superAdmin')
@@ -290,29 +251,29 @@ export class IncidentController {
         process.env.NODE_ENV === 'production'
           ? memoryStorage() // Use memory storage for Heroku
           : diskStorage({
-            destination: (req, file, cb) => {
-              const uploadsPath = join(
-                process.cwd(),
-                'uploads',
-                'incident_attachments',
-              );
-              try {
-                if (!fs.existsSync(uploadsPath)) {
-                  fs.mkdirSync(uploadsPath, { recursive: true });
+              destination: (req, file, cb) => {
+                const uploadsPath = join(
+                  process.cwd(),
+                  'uploads',
+                  'incident_attachments',
+                );
+                try {
+                  if (!fs.existsSync(uploadsPath)) {
+                    fs.mkdirSync(uploadsPath, { recursive: true });
+                  }
+                  cb(null, uploadsPath);
+                } catch (error) {
+                  console.error('Upload directory creation failed:', error);
+                  cb(error, uploadsPath);
                 }
-                cb(null, uploadsPath);
-              } catch (error) {
-                console.error('Upload directory creation failed:', error);
-                cb(error, uploadsPath);
-              }
-            },
-            filename: (req, file, cb) => {
-              const uniqueSuffix =
-                Date.now() + '-' + Math.round(Math.random() * 1e9);
-              const filename = `${uniqueSuffix}-${file.originalname}`;
-              cb(null, filename);
-            },
-          }),
+              },
+              filename: (req, file, cb) => {
+                const uniqueSuffix =
+                  Date.now() + '-' + Math.round(Math.random() * 1e9);
+                const filename = `${uniqueSuffix}-${file.originalname}`;
+                cb(null, filename);
+              },
+            }),
       limits: {
         fileSize: 1024 * 1024, // 1MB
       },
@@ -448,15 +409,6 @@ export class IncidentController {
     } catch (error) {
       throw error;
     }
-  }
-// Get incident history*****
-  @Get(':incident_number/performance')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('user', 'admin', 'technician', 'teamLeader', 'superAdmin')
-  async getIncidentPerformance(
-    @Param('incident_number') incident_number: string,
-  ) {
-    return this.incidentService.getIncidentPerformance(incident_number);
   }
 
   @Get(':incident_number/history')
@@ -635,29 +587,29 @@ export class IncidentController {
         process.env.NODE_ENV === 'production'
           ? memoryStorage() // Use memory storage for Heroku
           : diskStorage({
-            destination: (req, file, callback) => {
-              const uploadsPath = join(
-                process.cwd(),
-                'uploads',
-                'incident_attachments',
-              );
-              try {
-                if (!fs.existsSync(uploadsPath)) {
-                  fs.mkdirSync(uploadsPath, { recursive: true });
+              destination: (req, file, callback) => {
+                const uploadsPath = join(
+                  process.cwd(),
+                  'uploads',
+                  'incident_attachments',
+                );
+                try {
+                  if (!fs.existsSync(uploadsPath)) {
+                    fs.mkdirSync(uploadsPath, { recursive: true });
+                  }
+                  callback(null, uploadsPath);
+                } catch (error) {
+                  console.error('Upload directory creation failed:', error);
+                  callback(error, uploadsPath);
                 }
-                callback(null, uploadsPath);
-              } catch (error) {
-                console.error('Upload directory creation failed:', error);
-                callback(error, uploadsPath);
-              }
-            },
-            filename: (req, file, callback) => {
-              const uniqueSuffix =
-                Date.now() + '-' + Math.round(Math.random() * 1e9);
-              const fileExtension = extname(file.originalname);
-              callback(null, `${uniqueSuffix}${fileExtension}`);
-            },
-          }),
+              },
+              filename: (req, file, callback) => {
+                const uniqueSuffix =
+                  Date.now() + '-' + Math.round(Math.random() * 1e9);
+                const fileExtension = extname(file.originalname);
+                callback(null, `${uniqueSuffix}${fileExtension}`);
+              },
+            }),
       fileFilter: (req, file, callback) => {
         const allowedTypes = ['pdf', 'png', 'jpg', 'jpeg'];
         const fileExtension = extname(file.originalname).toLowerCase().slice(1);
