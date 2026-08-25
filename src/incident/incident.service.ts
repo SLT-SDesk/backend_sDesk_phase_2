@@ -320,6 +320,14 @@ export class IncidentService {
 
       const savedIncident = await this.incidentRepository.save(incident);
 
+      // Trigger SMS notification for incident creation (non-blocking)
+      setImmediate(() => {
+        this.notificationsService.sendIncidentCreatedSms(savedIncident.incident_number, savedIncident.informant)
+          .catch(error => {
+            this.logger.error(`[SMS-CREATION] Failed to send creation SMS for incident ${savedIncident.incident_number}: ${error?.message || error}`);
+          });
+      });
+
       // Emit socket events for newly created incident (notify assigned tech and broadcast)
       try {
         this.emitIncidentSocketEvents(savedIncident, 'created');
@@ -1076,6 +1084,14 @@ export class IncidentService {
       if (isClosingIncident) {
         this.emitIncidentSocketEvents(updatedIncident, 'closed');
         this.logger.log(`[SOCKET] Emitted closure event for incident ${updatedIncident.incident_number}`);
+
+        // Trigger SMS notification for incident closure (non-blocking)
+        setImmediate(() => {
+          this.notificationsService.sendIncidentClosedSms(updatedIncident.incident_number, updatedIncident.informant)
+            .catch(error => {
+              this.logger.error(`[SMS-CLOSURE] Failed to send closure SMS for incident ${updatedIncident.incident_number}: ${error?.message || error}`);
+            });
+        });
       }
 
       // --- TRIGGER AUTO-ASSIGNMENT AFTER UPDATE ---
