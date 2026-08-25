@@ -1,7 +1,7 @@
 import { NestFactory } from '@nestjs/core';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
-import cookieParser from 'cookie-parser';
+import * as cookieParser from 'cookie-parser';
 import { Request, Response, NextFunction } from 'express';
 import { createServer } from 'http';
 import { Server, Socket } from 'socket.io';
@@ -117,7 +117,7 @@ export async function bootstrap() {
 
   await app.init();
   const port = Number(process.env.PORT) || 8000;
-  httpServer.listen(port, '0.0.0.0', () => {});
+  httpServer.listen(port, '0.0.0.0', () => { });
 
   io.on('connection', (socket) => {
     socket.on('user_connected', (userData: UserData) => {
@@ -141,7 +141,7 @@ export async function bootstrap() {
     });
   });
 
-  io.engine.on('connection_error', () => {});
+  io.engine.on('connection_error', () => { });
 }
 
 export { io, technicianSockets };

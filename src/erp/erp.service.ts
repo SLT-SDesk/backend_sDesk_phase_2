@@ -4,7 +4,7 @@ import { ErpEmployee } from './interface/erp-employee.interface';
 
 @Injectable()
 export class ErpService {
-  constructor() {}
+  constructor() { }
 
   /**
    * [Rule 1 & 2 Implementation]
@@ -16,8 +16,10 @@ export class ErpService {
     serviceNo: string,
   ): Promise<ErpEmployee | null> {
     try {
-      const apiUrl = 'https://oneidentitytest.slt.com.lk/ERPAPIs/api/ERPData/GetEmployeeDetailsByServiceNoOrEmail';
-      
+      const apiUrl = process.env.ERP_EMPLOYEE_API_URL || '';
+      const erpUsername = process.env.ERP_USERNAME || '';
+      const erpPassword = process.env.ERP_PASSWORD || '';
+
       const response = await axios.post(
         apiUrl,
         {
@@ -26,8 +28,8 @@ export class ErpService {
         {
           headers: {
             'accept': 'text/plain',
-            'UserName': 'dpuser3',
-            'Password': 'dp@sltErp#',
+            'UserName': erpUsername,
+            'Password': erpPassword,
             'Content-Type': 'application/json',
           },
         },
@@ -35,7 +37,7 @@ export class ErpService {
 
       // Extract the first employee from the data array
       const employeeData = response.data?.data?.[0];
-      
+
       if (!employeeData) {
         console.warn(`[ERP] No employee found for service number: ${serviceNo}`);
         return null;

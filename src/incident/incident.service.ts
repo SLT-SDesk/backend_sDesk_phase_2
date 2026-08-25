@@ -123,28 +123,38 @@ export class IncidentService {
       //}
       //const incidentNumber = `IN${nextId}`;
 
+      // Check if informant service number is valid (exists in ERP database)
+      const reporterDetails = await this.erpService.getEmployeeByServiceNum(
+        incidentDto.informant,
+      );
+      if (!reporterDetails) {
+        throw new NotFoundException(
+          `User with service number ${incidentDto.informant} not found`,
+        );
+      }
+
       // $$$$$-- new change Set the date for update_on so daily counting works
       incidentDto.update_on = new Date().toISOString().split('T')[0];
 
       // [AUTO-PRIORITY] Fetch reporter details and calculate priority
       try {
-        const reporterDetails = await this.erpService.getEmployeeByServiceNum(incidentDto.informant);
-        if (reporterDetails) {
-           const autoPriority = PriorityHelper.getAutoPriority(
-             { designation: reporterDetails.designation, gradeName: reporterDetails.gradeName },
-             incidentDto
-           );
-           
-           // Apply auto-priority (Backend is the final authority)
-           incidentDto.priority = autoPriority;
-           this.logger.log(`[AUTO-PRIORITY] Assigned '${autoPriority}' to incident for ${incidentDto.informant}`);
-        } else {
-           // Fallback if ERP is unavailable - still apply content-based rules
-           const fallbackPriority = PriorityHelper.getAutoPriority({}, incidentDto);
-           incidentDto.priority = fallbackPriority;
-        }
+        const autoPriority = PriorityHelper.getAutoPriority(
+          {
+            designation: reporterDetails.designation,
+            gradeName: reporterDetails.gradeName,
+          },
+          incidentDto,
+        );
+
+        // Apply auto-priority (Backend is the final authority)
+        incidentDto.priority = autoPriority;
+        this.logger.log(
+          `[AUTO-PRIORITY] Assigned '${autoPriority}' to incident for ${incidentDto.informant}`,
+        );
       } catch (priorityError) {
-        this.logger.error(`[AUTO-PRIORITY] Error calculating priority: ${priorityError.message}`);
+        this.logger.error(
+          `[AUTO-PRIORITY] Error calculating priority: ${priorityError.message}`,
+        );
         // Keep existing priority or default to Medium
         incidentDto.priority = incidentDto.priority || IncidentPriority.MEDIUM;
       }
@@ -341,7 +351,7 @@ export class IncidentService {
 
       return savedIncident;
     } catch (error) {
-      if (error instanceof BadRequestException) {
+      if (error instanceof BadRequestException || error instanceof NotFoundException) {
         throw error;
       }
       const message = error instanceof Error ? error.message : String(error);
@@ -370,25 +380,26 @@ export class IncidentService {
       );
     }
   }
-  async getAssignedByMe(informant: string): Promise<Incident[]> {
+  async getAssignedByMe(reporter: string): Promise<Incident[]> {
 
     try {
-      if (!informant) {
-        throw new BadRequestException('informant is required');
+      if (!reporter) {
+        throw new BadRequestException('reporter service number is required');
       }
 
-      const trimmedInformant = informant.trim();
+      const trimmedReporter = reporter.trim();
 
       // First, clean up any existing data with whitespace issues
       await this.cleanupInformantWhitespace();
 
 
-      // Use LIKE with trimmed spaces to handle potential whitespace issues
+      // Query by update_by — this is the logged-in user who filed the incident
       const incidents = await this.incidentRepository
         .createQueryBuilder('incident')
-        .where('TRIM(incident.informant) = :informant', {
-          informant: trimmedInformant,
+        .where('TRIM(incident.update_by) = :reporter', {
+          reporter: trimmedReporter,
         })
+        .orderBy('incident.incident_number', 'DESC')
         .getMany();
 
 
@@ -399,7 +410,7 @@ export class IncidentService {
       }
       const message = error instanceof Error ? error.message : String(error);
       throw new InternalServerErrorException(
-        'Failed to retrieve incidents assigned by informant: ' + message,
+        'Failed to retrieve incidents reported by user: ' + message,
       );
     }
   }
@@ -463,10 +474,6 @@ export class IncidentService {
   ): Promise<Incident> {
     try {
 
-      //  $$$$$$$$-----disable team admin approval completely
-      incidentDto.assignForTeamAdmin = false;
-
-
       const incident = await this.incidentRepository.findOne({
         where: { incident_number },
       });
@@ -475,11 +482,15 @@ export class IncidentService {
           `Incident with incident_number ${incident_number} not found`,
         );
       }
+
       if (Object.keys(incidentDto).length == 0) {
         throw new BadRequestException(
           'At least one field is required to update',
         );
       }
+
+      //  $$$$$$$$-----disable team admin approval completely
+      incidentDto.assignForTeamAdmin = false;
 
       // Store original values for comparison
       const originalStatus = incident.status;
@@ -659,6 +670,18 @@ export class IncidentService {
       if (incidentDto.automaticallyAssignForTier2) {
         console.log('🔍 Starting Tier2 assignment process...');
 
+        if (originalStatus === IncidentStatus.PENDING_TIER2_ASSIGNMENT) {
+          throw new BadRequestException('Incident is already in the transfer queue for Tier 2.');
+        }
+        if (originalHandler) {
+          const handlerTech = await this.technicianRepository.findOne({
+            where: { serviceNum: originalHandler },
+          });
+          if (handlerTech && (handlerTech.tier === 'Tier2' || handlerTech.tier === 'tier2' || handlerTech.tier === 'Tier3' || handlerTech.tier === 'tier3')) {
+            throw new BadRequestException('Incident has already been processed by a Tier 2 or Tier 3 technician.');
+          }
+        }
+
         // Find CategoryItem by name (category)
         const categoryItem = await this.categoryItemRepository.findOne({
           where: { name: incidentDto.category || incident.category },
@@ -699,6 +722,18 @@ export class IncidentService {
       // --- Auto-assign Tier3 technician if requested ---
       if (incidentDto.automaticallyAssignForTier3) {
         console.log('🔍 Starting Tier3 assignment process...');
+
+        if (originalStatus === IncidentStatus.PENDING_TIER3_ASSIGNMENT) {
+          throw new BadRequestException('Incident is already in the transfer queue for Tier 3.');
+        }
+        if (originalHandler) {
+          const handlerTech = await this.technicianRepository.findOne({
+            where: { serviceNum: originalHandler },
+          });
+          if (handlerTech && (handlerTech.tier === 'Tier3' || handlerTech.tier === 'tier3')) {
+            throw new BadRequestException('Incident has already been processed by a Tier 3 technician.');
+          }
+        }
 
         // Find CategoryItem by name (category)
         const categoryItem = await this.categoryItemRepository.findOne({
