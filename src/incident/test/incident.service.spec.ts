@@ -430,6 +430,7 @@ describe('IncidentService', () => {
       const incidents = [mockIncident];
       const queryBuilder = {
         where: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
         getMany: jest.fn().mockResolvedValue(incidents),
       };
       mockIncidentRepository.find.mockResolvedValue([]);
@@ -455,6 +456,7 @@ describe('IncidentService', () => {
       const incidents = [mockIncident];
       const queryBuilder = {
         where: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
         getMany: jest.fn().mockResolvedValue(incidents),
       };
       mockIncidentRepository.find.mockResolvedValue([]);

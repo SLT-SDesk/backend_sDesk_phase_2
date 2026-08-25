@@ -351,7 +351,7 @@ export class IncidentService {
 
       return savedIncident;
     } catch (error) {
-      if (error instanceof BadRequestException) {
+      if (error instanceof BadRequestException || error instanceof NotFoundException) {
         throw error;
       }
       const message = error instanceof Error ? error.message : String(error);
@@ -399,6 +399,7 @@ export class IncidentService {
         .where('TRIM(incident.update_by) = :reporter', {
           reporter: trimmedReporter,
         })
+        .orderBy('incident.incident_number', 'DESC')
         .getMany();
 
 
