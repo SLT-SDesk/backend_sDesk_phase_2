@@ -232,6 +232,24 @@ describe('IncidentService', () => {
   describe('create', () => {
     beforeEach(() => {
       mockIncidentRepository.count.mockResolvedValue(0);
+      mockErpService.getEmployeeByServiceNum.mockResolvedValue({
+        employeeNumber: '105553',
+        employeeName: 'Jane Doe',
+        email: 'jane@company.com',
+        mobileNo: '0771234567',
+        designation: 'Engineer',
+        gradeName: 'Grade 3',
+      });
+    });
+
+    it('should throw NotFoundException when informant service number is invalid', async () => {
+      // Arrange
+      mockErpService.getEmployeeByServiceNum.mockResolvedValue(null);
+
+      // Act & Assert
+      await expect(service.create(mockIncidentDto)).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('should create an incident successfully with technician assignment', async () => {
