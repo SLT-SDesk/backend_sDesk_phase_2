@@ -8,6 +8,7 @@ export enum IncidentStatus {
   CLOSED = 'Closed',
   PENDING_ASSIGNMENT = 'Pending Assignment',
   PENDING_TIER2_ASSIGNMENT = 'Pending Tier2 Assignment',
+  PENDING_TIER3_ASSIGNMENT = 'Pending Tier3 Assignment',
 }
 
 export enum IncidentPriority {

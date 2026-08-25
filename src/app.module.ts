@@ -3,9 +3,9 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import * as dotenv from 'dotenv';
 import { CategoryModule } from './Categories/Categories.module';
 import {
-    CategoryItem,
-    MainCategory,
-    SubCategory,
+  CategoryItem,
+  MainCategory,
+  SubCategory,
 } from './Categories/Entities/Categories.entity';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -24,12 +24,21 @@ import { TeamAdmin } from './teamadmin/entities/teamadmin.entity';
 import { TeamAdminModule } from './teamadmin/teamadmin.module';
 import { Technician } from './technician/entities/technician.entity';
 import { TechnicianModule } from './technician/technician.module';
-
+import { SessionsModule } from './sessions/sessions.module';
+import { Session } from './sessions/entities/session.entity';
+import { TechnicianPerformance } from './incident/entities/technician-performance.entity';
+import { UserRole } from './user-role/entities/user-role.entity';// new**s
+import { UserRoleModule } from './user-role/user-role.module';// new**s
+import { ConfigModule } from '@nestjs/config';
+import { UserLookupModule } from './user-lookup/user-lookup.module';
 
 dotenv.config();
 
 @Module({
   imports: [
+    ConfigModule.forRoot({
+      isGlobal: true, // new**s
+    }),
     TypeOrmModule.forRoot({
       type: 'postgres',
       host: process.env.DB_HOST,
@@ -48,10 +57,13 @@ dotenv.config();
         Team,
         Technician,
         Location,
-         IncidentHistory,
+        IncidentHistory,
+        Session,
+        TechnicianPerformance,
+        UserRole, // new**s
       ],
       synchronize: true,
-      ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+      ssl: false,  //update: 3/12/2025 DevOps change Remove "process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false }"
     }),
     IncidentModule,
     TeamAdminModule,
@@ -60,10 +72,12 @@ dotenv.config();
     SLTUsersModule,
     TechnicianModule,
     LocationModule,
-  NotificationsModule,
-
+    NotificationsModule,
+    SessionsModule,
+    UserRoleModule,// new**s
+    UserLookupModule,// new**s
   ],
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule {}  
+export class AppModule { }  

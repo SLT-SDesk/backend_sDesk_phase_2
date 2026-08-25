@@ -1,24 +1,27 @@
 import { NestFactory } from '@nestjs/core';
+import helmet from 'helmet';
 import { AppModule } from './app.module';
 import * as cookieParser from 'cookie-parser';
 import { Request, Response, NextFunction } from 'express';
 import { createServer } from 'http';
-import { Server } from 'socket.io';
+import { Server, Socket } from 'socket.io';
 import { join } from 'path';
 import * as express from 'express';
 import * as fs from 'fs';
 
-// Define the expected user data structure
 interface UserData {
   serviceNum: string;
   role: string;
 }
 
-// Global socket instance (we'll improve this architecture later)
-let io: Server;
-const technicianSockets = new Map<string, string>(); // serviceNum → socketId
+interface AuthenticatedSocket extends Socket {
+  userId?: string;
+  userRole?: string;
+}
 
-// ===== Helper: Notify technician inactive by admin =====
+let io: Server;
+const technicianSockets = new Map<string, string>();
+
 export function notifyInactiveByAdmin(serviceNum: string) {
   const socketId = technicianSockets.get(String(serviceNum));
 
@@ -26,17 +29,13 @@ export function notifyInactiveByAdmin(serviceNum: string) {
     io.to(socketId).emit('inactive_by_admin', {
       message: 'You are inactive by admin.',
     });
-  } else {
-    // no-op if socket not connected
   }
 }
 
-// ===== Helper: Broadcast status change =====
 export function emitTechnicianStatusChange(
   serviceNum: string,
   active: boolean,
 ) {
-  // If io is not initialized yet (e.g., when imported in tests), guard safely
   if (io) {
     io.emit('technician_status_changed', { serviceNum, active });
   }
@@ -45,22 +44,23 @@ export function emitTechnicianStatusChange(
 export async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  app.use(helmet());
+
   app.use(cookieParser());
 
-  // Ensure uploads directory exists (handle both local and cloud storage)
   const uploadsDir = join(process.cwd(), 'uploads', 'incident_attachments');
   try {
     if (!fs.existsSync(uploadsDir)) {
       fs.mkdirSync(uploadsDir, { recursive: true });
     }
-  } catch (error: any) {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     console.warn(
       'Could not create uploads directory (possibly read-only filesystem):',
-      error?.message ?? error,
+      message,
     );
   }
 
-  // Serve static files from uploads directory
   app.use('/uploads', express.static(join(process.cwd(), 'uploads')));
 
   const allowedOrigins = [
@@ -69,19 +69,24 @@ export async function bootstrap() {
     'http://localhost:5173',
     'https://localhost:3000',
     'https://localhost:5173',
+    'https://dpdlab1.slt.lk:8448',
   ];
 
-  // Request logging middleware
   app.use((req: Request, res: Response, next: NextFunction) => {
-    if (req.method === 'OPTIONS') {
-      // no-op for now
-    }
-
     next();
   });
 
   app.enableCors({
-    origin: true,
+    origin: (
+      origin: string | undefined,
+      callback: (err: Error | null, allow?: boolean) => void,
+    ) => {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
     allowedHeaders: [
@@ -99,7 +104,9 @@ export async function bootstrap() {
     optionsSuccessStatus: 204,
   });
 
-  const httpServer = createServer(app.getHttpAdapter().getInstance());
+  const expressInstance =
+    app.getHttpAdapter().getInstance() as unknown as express.Express;
+  const httpServer = createServer(expressInstance);
   io = new Server(httpServer, {
     cors: {
       origin: allowedOrigins,
@@ -109,32 +116,22 @@ export async function bootstrap() {
   });
 
   await app.init();
-  const port = Number(process.env.PORT) || 8000; // Convert to number
-  httpServer.listen(port, '0.0.0.0', () => {
-    // Application started successfully
-    // console.log(`Server listening on port ${port}`);
-  });
+  const port = Number(process.env.PORT) || 8000;
+  httpServer.listen(port, '0.0.0.0', () => { });
 
-  // ===== SOCKET EVENTS =====
   io.on('connection', (socket) => {
-    // Store user info when they connect
     socket.on('user_connected', (userData: UserData) => {
       const serviceNumStr = String(userData.serviceNum);
-      (socket as any).userId = serviceNumStr;
-      (socket as any).userRole = userData.role;
+      const authSocket = socket as AuthenticatedSocket;
+      authSocket.userId = serviceNumStr;
+      authSocket.userRole = userData.role;
 
-      // Save socket mapping
       technicianSockets.set(serviceNumStr, socket.id);
 
-      // Join personal room
-      // eslint-disable-next-line @typescript-eslint/no-floating-promises
-      socket.join(`user_${serviceNumStr}`);
+      void socket.join(`user_${serviceNumStr}`);
     });
 
-    // ...other handlers...
-
     socket.on('disconnect', () => {
-      // Remove from map
       for (const [serviceNum, sockId] of technicianSockets.entries()) {
         if (sockId === socket.id) {
           technicianSockets.delete(serviceNum);
@@ -144,17 +141,11 @@ export async function bootstrap() {
     });
   });
 
-  // Add global socket event listener to monitor all emissions
-  io.engine.on('connection_error', () => {
-    // Handle connection errors silently
-  });
+  io.engine.on('connection_error', () => { });
 }
 
-// Export for other files
 export { io, technicianSockets };
 
-// --- IMPORTANT: only start server when main.ts is executed directly ---
-// Prevent bootstrap from running when this file is imported by Jest tests
 if (require.main === module) {
   bootstrap().catch((err) => {
     console.error(err);
