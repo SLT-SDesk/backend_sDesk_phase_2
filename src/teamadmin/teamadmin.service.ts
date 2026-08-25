@@ -37,49 +37,38 @@ export class TeamAdminService {
     }
   }
 
-  async updateTeamAdmin(
+  async updateTeamAdminByTeamId(
     id: string,
     teamAdminDto: TeamAdminDto,
   ): Promise<TeamAdmin> {
     try {
-      const teamAdmin = await this.findTeamAdminById(id);
+      const teamAdmin = await this.findTeamAdminByTeamId(id);
       if (!teamAdmin) {
-        throw new NotFoundException(`Team admin with ID ${id} not found`);
+        throw new NotFoundException(`Team admin with teamId ${id} not found`);
       }
-
-      // Check if team is being changed
-      if (teamAdminDto.teamId !== teamAdmin.teamId) {
-        const existingAdmin = await this.findTeamAdminByTeamId(teamAdminDto.teamId);
-        if (existingAdmin && existingAdmin.id !== id) {
-          throw new InternalServerErrorException(
-            `Team ${teamAdminDto.teamName} already has an assigned administrator.`,
-          );
-        }
-      }
-
       Object.assign(teamAdmin, teamAdminDto);
       return await this.teamAdminRepository.save(teamAdmin);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (error instanceof NotFoundException || error instanceof InternalServerErrorException) {
+      if (error instanceof NotFoundException) {
         throw error;
       }
       throw new InternalServerErrorException(
-        `Failed to update team admin: ${message}`,
+        `Failed to update team admin with teamId ${id}: ${message}`,
       );
     }
   }
 
-  async removeTeamAdmin(id: string): Promise<void> {
+  async removeTeamAdminByTeamId(id: string): Promise<void> {
     try {
-      const teamAdmin = await this.findTeamAdminById(id);
+      const teamAdmin = await this.findTeamAdminByTeamId(id);
       if (!teamAdmin) {
-        throw new NotFoundException(`Team admin with ID ${id} not found`);
+        throw new NotFoundException(`Team admin with teamId ${id} not found`);
       }
-      const result = await this.teamAdminRepository.delete(id);
+      const result = await this.teamAdminRepository.delete({ teamId: id });
       if (result.affected === 0) {
         throw new InternalServerErrorException(
-          `Failed to delete team admin with ID ${id}`,
+          `Failed to delete team admin with teamId ${id}`,
         );
       }
     } catch (error) {
@@ -111,17 +100,6 @@ export class TeamAdminService {
       const message = error instanceof Error ? error.message : String(error);
       throw new InternalServerErrorException(
         `Failed to find team admin by teamId ${teamId}: ${message}`,
-      );
-    }
-  }
-
-  async findTeamAdminById(id: string): Promise<TeamAdmin | null> {
-    try {
-      return await this.teamAdminRepository.findOne({ where: { id } });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      throw new InternalServerErrorException(
-        `Failed to find team admin by ID ${id}: ${message}`,
       );
     }
   }

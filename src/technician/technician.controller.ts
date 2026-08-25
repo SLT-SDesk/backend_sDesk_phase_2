@@ -23,54 +23,13 @@ import { CreateTechnicianDto } from './dto/create-technician.dto';
 import { Technician } from './entities/technician.entity';
 import { AuthService } from '../auth/auth.service';
 import { Response, Request } from 'express';
-import { Session } from '../sessions/entities/session.entity';
-// new imports for role management
-import { UserRoleService } from '../user-role/user-role.service';
-import { UserRoleEnum } from '../user-role/entities/user-role.entity';
 
 @Controller()
 export class TechnicianController {
   constructor(
     private readonly technicianService: TechnicianService,
     private readonly authService: AuthService,
-    private readonly userRoleService: UserRoleService, // added for automatic role assignment
   ) {}
-
-  @Get('technician/sessions/:serviceNum')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('user', 'admin', 'technician', 'teamLeader', 'superAdmin')
-  async getTechnicianWithSessions(
-    @Param('serviceNum') serviceNum: string,
-  ): Promise<Technician> {
-    try {
-      return await this.technicianService.getTechnicianWithSessions(serviceNum);
-    } catch (error) {
-      throw new HttpException(
-        error.message || 'Failed to fetch technician with sessions.',
-        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
-  }
-
-  @Get('technician/sessions-teamId/:teamId')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles('user', 'admin', 'technician', 'teamLeader', 'superAdmin')
-  async getAllTechnicianNameWithSessionsByMainCategory(
-    @Param('teamId') teamId: string,
-  ): Promise<{
-    serviceNum: string;
-    name: string;
-    sessions: Session[];
-  } []> {
-    try {
-      return await this.technicianService.getAllTechnicianNameWithSessionsByMainCategory(teamId);
-    } catch (error) {
-      throw new HttpException(
-        error.message || 'Failed to fetch technician name with sessions by main category.',
-        error.status || HttpStatus.INTERNAL_SERVER_ERROR,
-      );
-    }
-  }
 
   @Post('technician')
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -102,17 +61,6 @@ export class TechnicianController {
 
     dto.active = isActive;
     const technician = await this.technicianService.createTechnician(dto);
-
-    // make sure the user_roles table reflects the new technician role
-    try {
-      await this.userRoleService.assignRole(
-        technician.serviceNum,
-        UserRoleEnum.TECHNICIAN,
-      );
-    } catch (assignErr) {
-      // log but do not block the response; user should still be created
-      console.error('Failed to assign role for technician', assignErr);
-    }
 
     if (shouldClearCookies) {
       res.clearCookie('accessToken');
@@ -189,14 +137,6 @@ export class TechnicianController {
   ): Promise<{ message: string }> {
     try {
       await this.technicianService.deleteTechnician(serviceNum);
-      
-      // Also clean up the user_roles table entry for consistency
-      try {
-        await this.userRoleService.removeRole(serviceNum);
-      } catch (e) {
-        console.warn('Failed to remove user role entry during technician deletion', e);
-      }
-      
       return { message: 'Technician deleted successfully.' };
     } catch (error) {
       throw new HttpException(

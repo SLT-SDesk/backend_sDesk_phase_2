@@ -129,4 +129,5 @@ Desktop.ini
 
 # Keep package-lock.json for production builds
 # package-lock.json
+.env.example
 .env.development
