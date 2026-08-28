@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import {
@@ -11,7 +11,7 @@ import { SubCategoryDto } from './dto/sub-category.dto';
 import { CategoryItemDto } from './dto/category-item.dto';
 
 @Injectable()
-export class CategoryService {
+export class CategoryService implements OnModuleInit {
   constructor(
     @InjectRepository(MainCategory)
     private mainCategoryRepository: Repository<MainCategory>,
@@ -21,7 +21,23 @@ export class CategoryService {
 
     @InjectRepository(CategoryItem)
     private categoryItemRepository: Repository<CategoryItem>,
-  ) {}
+  ) { }
+
+  async onModuleInit() {
+    try {
+      const subCategory = await this.subCategoryRepository.findOne({
+        where: [{ category_code: 'SUB021' }, { name: 'Tier 3 Support' }],
+      });
+      if (subCategory) {
+        await this.subCategoryRepository.remove(subCategory);
+        console.log(
+          `Successfully removed subcategory: ${subCategory.name} (${subCategory.category_code}) from system.`,
+        );
+      }
+    } catch (error) {
+      console.error('Error during Tier 3 Support subcategory cleanup:', error);
+    }
+  }
 
   private async generateMainCategoryCode(): Promise<string> {
     const result = await this.mainCategoryRepository
