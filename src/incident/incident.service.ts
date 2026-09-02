@@ -9,7 +9,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, In, Repository } from 'typeorm';
-import { CategoryItem } from '../Categories/Entities/Categories.entity';
+import { CategoryItem, SubCategory } from '../Categories/Entities/Categories.entity';
 import { io } from '../main';
 import { TeamAdmin } from '../teamadmin/entities/teamadmin.entity';
 import { Technician } from '../technician/entities/technician.entity';
@@ -40,6 +40,8 @@ export class IncidentService {
     private incidentHistoryRepository: Repository<IncidentHistory>,
     @InjectRepository(CategoryItem)
     private categoryItemRepository: Repository<CategoryItem>,
+    @InjectRepository(SubCategory)
+    private subCategoryRepository: Repository<SubCategory>,
     @InjectRepository(TeamAdmin)
     private teamAdminRepository: Repository<TeamAdmin>,
     private notificationsService: NotificationsService,
@@ -164,31 +166,46 @@ export class IncidentService {
 
 
       // --- Team-based Technician Assignment Logic ---
-      // Step 1: Find CategoryItem by name (incidentDto.category is the category name)
-      const categoryItem = await this.categoryItemRepository.findOne({
-        where: { name: incidentDto.category },
-        relations: ['subCategory', 'subCategory.mainCategory'],
-      });
+      let mainCategoryId, teamName, subCategoryName;
+      const searchCategoryName = incidentDto.category ? incidentDto.category.trim().toLowerCase() : '';
 
-      if (!categoryItem) {
-        throw new BadRequestException(
-          `Category '${incidentDto.category}' not found`,
-        );
+      // Step 1: Find CategoryItem or SubCategory by name (case-insensitive)
+      const categoryItem = await this.categoryItemRepository
+        .createQueryBuilder('item')
+        .leftJoinAndSelect('item.subCategory', 'subCategory')
+        .leftJoinAndSelect('subCategory.mainCategory', 'mainCategory')
+        .where('LOWER(TRIM(item.name)) = :name', { name: searchCategoryName })
+        .getOne();
+
+      if (categoryItem) {
+        mainCategoryId = categoryItem.subCategory?.mainCategory?.id;
+        teamName = categoryItem.subCategory?.mainCategory?.name;
+        subCategoryName = categoryItem.subCategory?.name;
+      } else {
+        // Fallback: check if it's a SubCategory without items
+        const subCategory = await this.subCategoryRepository
+          .createQueryBuilder('sub')
+          .leftJoinAndSelect('sub.mainCategory', 'mainCategory')
+          .where('LOWER(TRIM(sub.name)) = :name', { name: searchCategoryName })
+          .getOne();
+
+        if (subCategory) {
+          mainCategoryId = subCategory.mainCategory?.id;
+          teamName = subCategory.mainCategory?.name;
+          subCategoryName = subCategory.name;
+        } else {
+          throw new BadRequestException(
+            `Category '${incidentDto.category}' not found`,
+          );
+        }
       }
 
-      // Step 2: Get MainCategory ID (this is the team ID)
-      const mainCategoryId = categoryItem.subCategory?.mainCategory?.id;
       if (!mainCategoryId) {
         throw new BadRequestException(
           `No team found for category '${incidentDto.category}'`,
         );
       }
 
-      // Step 3: Get the team name from mainCategory
-      const teamName = categoryItem.subCategory?.mainCategory?.name;
-
-      // Step 3a: Get the SubCategory name for technician matching
-      const subCategoryName = categoryItem.subCategory?.name;
       if (!subCategoryName) {
         throw new BadRequestException(
           `No sub-category found for category '${incidentDto.category}'`,
@@ -523,22 +540,39 @@ export class IncidentService {
       const categoryChanged = incidentDto.category && incidentDto.category !== originalCategory;
 
       if (categoryChanged) {
-        // Find CategoryItem by name (incidentDto.category is the category name)
-        const categoryItem = await this.categoryItemRepository.findOne({
-          where: { name: incidentDto.category },
-          relations: ['subCategory', 'subCategory.mainCategory'],
-        });
+        let mainCategoryId, teamName, subCategoryName;
+        const searchCategoryName = incidentDto.category ? incidentDto.category.trim().toLowerCase() : '';
 
-        if (!categoryItem) {
-          console.error(`[IncidentService] New category '${incidentDto.category}' not found for reassignment.`);
-          throw new BadRequestException(
-            `New category '${incidentDto.category}' not found for reassignment.`,
-          );
+        // Find CategoryItem or SubCategory by name (case-insensitive)
+        const categoryItem = await this.categoryItemRepository
+          .createQueryBuilder('item')
+          .leftJoinAndSelect('item.subCategory', 'subCategory')
+          .leftJoinAndSelect('subCategory.mainCategory', 'mainCategory')
+          .where('LOWER(TRIM(item.name)) = :name', { name: searchCategoryName })
+          .getOne();
+
+        if (categoryItem) {
+          mainCategoryId = categoryItem.subCategory?.mainCategory?.id;
+          teamName = categoryItem.subCategory?.mainCategory?.name;
+          subCategoryName = categoryItem.subCategory?.name;
+        } else {
+          const subCategory = await this.subCategoryRepository
+            .createQueryBuilder('sub')
+            .leftJoinAndSelect('sub.mainCategory', 'mainCategory')
+            .where('LOWER(TRIM(sub.name)) = :name', { name: searchCategoryName })
+            .getOne();
+
+          if (subCategory) {
+            mainCategoryId = subCategory.mainCategory?.id;
+            teamName = subCategory.mainCategory?.name;
+            subCategoryName = subCategory.name;
+          } else {
+            console.error(`[IncidentService] New category '${incidentDto.category}' not found for reassignment.`);
+            throw new BadRequestException(
+              `New category '${incidentDto.category}' not found for reassignment.`,
+            );
+          }
         }
-
-        const mainCategoryId = categoryItem.subCategory?.mainCategory?.id;
-        const teamName = categoryItem.subCategory?.mainCategory?.name;
-        const subCategoryName = categoryItem.subCategory?.name;
 
         if (!mainCategoryId && !teamName) {
           console.error(`[IncidentService] No team found for new category '${incidentDto.category}' for reassignment.`);
@@ -690,20 +724,32 @@ export class IncidentService {
           }
         }
 
-        // Find CategoryItem by name (category)
-        const categoryItem = await this.categoryItemRepository.findOne({
-          where: { name: incidentDto.category || incident.category },
-          relations: ['subCategory', 'subCategory.mainCategory'],
-        });
+        const searchCat = incidentDto.category || incident.category;
+        const searchCategoryName = searchCat ? searchCat.trim().toLowerCase() : '';
+        const categoryItem = await this.categoryItemRepository
+          .createQueryBuilder('item')
+          .leftJoinAndSelect('item.subCategory', 'subCategory')
+          .leftJoinAndSelect('subCategory.mainCategory', 'mainCategory')
+          .where('LOWER(TRIM(item.name)) = :name', { name: searchCategoryName })
+          .getOne();
 
-        if (!categoryItem) {
-          throw new BadRequestException(
-            `Category '${incidentDto.category || incident.category}' not found`,
-          );
+        let mainCategoryId, teamName;
+        if (categoryItem) {
+          mainCategoryId = categoryItem.subCategory?.mainCategory?.id;
+          teamName = categoryItem.subCategory?.mainCategory?.name;
+        } else {
+          const subCat = await this.subCategoryRepository
+            .createQueryBuilder('sub')
+            .leftJoinAndSelect('sub.mainCategory', 'mainCategory')
+            .where('LOWER(TRIM(sub.name)) = :name', { name: searchCategoryName })
+            .getOne();
+          if (subCat) {
+            mainCategoryId = subCat.mainCategory?.id;
+            teamName = subCat.mainCategory?.name;
+          } else {
+            throw new BadRequestException(`Category '${searchCat}' not found`);
+          }
         }
-
-        const mainCategoryId = categoryItem.subCategory?.mainCategory?.id;
-        const teamName = categoryItem.subCategory?.mainCategory?.name;
 
         // Try to assign to active Tier2 technician
         const tier2Result = await this.tryAssignToTier2Technician(
@@ -743,20 +789,32 @@ export class IncidentService {
           }
         }
 
-        // Find CategoryItem by name (category)
-        const categoryItem = await this.categoryItemRepository.findOne({
-          where: { name: incidentDto.category || incident.category },
-          relations: ['subCategory', 'subCategory.mainCategory'],
-        });
+        const searchCat = incidentDto.category || incident.category;
+        const searchCategoryName = searchCat ? searchCat.trim().toLowerCase() : '';
+        const categoryItem = await this.categoryItemRepository
+          .createQueryBuilder('item')
+          .leftJoinAndSelect('item.subCategory', 'subCategory')
+          .leftJoinAndSelect('subCategory.mainCategory', 'mainCategory')
+          .where('LOWER(TRIM(item.name)) = :name', { name: searchCategoryName })
+          .getOne();
 
-        if (!categoryItem) {
-          throw new BadRequestException(
-            `Category '${incidentDto.category || incident.category}' not found`,
-          );
+        let mainCategoryId, teamName;
+        if (categoryItem) {
+          mainCategoryId = categoryItem.subCategory?.mainCategory?.id;
+          teamName = categoryItem.subCategory?.mainCategory?.name;
+        } else {
+          const subCat = await this.subCategoryRepository
+            .createQueryBuilder('sub')
+            .leftJoinAndSelect('sub.mainCategory', 'mainCategory')
+            .where('LOWER(TRIM(sub.name)) = :name', { name: searchCategoryName })
+            .getOne();
+          if (subCat) {
+            mainCategoryId = subCat.mainCategory?.id;
+            teamName = subCat.mainCategory?.name;
+          } else {
+            throw new BadRequestException(`Category '${searchCat}' not found`);
+          }
         }
-
-        const mainCategoryId = categoryItem.subCategory?.mainCategory?.id;
-        const teamName = categoryItem.subCategory?.mainCategory?.name;
 
         // Try to assign to active Tier3 technician
         const tier3Result = await this.tryAssignToTier3Technician(
@@ -884,14 +942,31 @@ export class IncidentService {
         const isSkilled = await this.isTechnicianSkilledForIncident(targetTechnician, tempIncident);
 
         if (!isSkilled) {
-          // Get category hierarchy for error message
-          const categoryItem = await this.categoryItemRepository.findOne({
-            where: { name: currentCategory },
-            relations: ['subCategory', 'subCategory.mainCategory'],
-          });
+          const searchCategoryName = currentCategory ? currentCategory.trim().toLowerCase() : '';
+          const categoryItem = await this.categoryItemRepository
+            .createQueryBuilder('item')
+            .leftJoinAndSelect('item.subCategory', 'subCategory')
+            .leftJoinAndSelect('subCategory.mainCategory', 'mainCategory')
+            .where('LOWER(TRIM(item.name)) = :name', { name: searchCategoryName })
+            .getOne();
 
-          const subCategoryName = categoryItem?.subCategory?.name || 'Unknown';
-          const mainCategoryName = categoryItem?.subCategory?.mainCategory?.name || 'Unknown';
+          let subCategoryNameToUse = categoryItem?.subCategory?.name;
+          let mainCategoryNameToUse = categoryItem?.subCategory?.mainCategory?.name;
+
+          if (!categoryItem) {
+            const subCat = await this.subCategoryRepository
+              .createQueryBuilder('sub')
+              .leftJoinAndSelect('sub.mainCategory', 'mainCategory')
+              .where('LOWER(TRIM(sub.name)) = :name', { name: searchCategoryName })
+              .getOne();
+            if (subCat) {
+              subCategoryNameToUse = subCat.name;
+              mainCategoryNameToUse = subCat.mainCategory?.name;
+            }
+          }
+
+          const subCategoryName = subCategoryNameToUse || 'Unknown';
+          const mainCategoryName = mainCategoryNameToUse || 'Unknown';
 
           this.logger.warn(`[MANUAL-ASSIGNMENT] Technician ${incidentDto.handler} is not skilled for category '${currentCategory}' (sub-category: ${subCategoryName})`);
 
