@@ -8,7 +8,7 @@ import {
 import { NotificationsService } from '../notifications/notifications.service';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, In, Repository } from 'typeorm';
+import { Between, ILike, In, Repository } from 'typeorm';
 import { CategoryItem, SubCategory } from '../Categories/Entities/Categories.entity';
 import { io } from '../main';
 import { TeamAdmin } from '../teamadmin/entities/teamadmin.entity';
@@ -2065,6 +2065,56 @@ export class IncidentService {
     await this.incidentHistoryRepository.save(history);
   }
 
+  // ------------------- CATEGORY RESOLUTION HELPER ------------------- //
+
+  /**
+   * Resolve a CategoryItem from an incident's category string using a
+   * 5-stage fallback chain:
+   *  1. Exact name match
+   *  2. Case-insensitive name match
+   *  3. category_code match
+   *  4. SubCategory name match  → return first CategoryItem in that sub
+   *  5. MainCategory name match → return first CategoryItem in that main
+   */
+  private async resolveCategoryItem(category: string): Promise<CategoryItem | null> {
+    const relations = ['subCategory', 'subCategory.mainCategory'];
+
+    // 1. Exact name match (fast path)
+    let item = await this.categoryItemRepository.findOne({
+      where: { name: category },
+      relations,
+    });
+    if (item?.subCategory?.mainCategory) return item;
+
+    // 2. Case-insensitive name match
+    item = await this.categoryItemRepository.findOne({
+      where: { name: ILike(category) },
+      relations,
+    });
+    if (item?.subCategory?.mainCategory) return item;
+
+    // 3. category_code match (e.g. 'CAT154')
+    item = await this.categoryItemRepository.findOne({
+      where: { category_code: category },
+      relations,
+    });
+    if (item?.subCategory?.mainCategory) return item;
+
+    // 4. SubCategory name match
+    item = await this.categoryItemRepository.findOne({
+      where: { subCategory: { name: ILike(category) } },
+      relations,
+    });
+    if (item?.subCategory?.mainCategory) return item;
+
+    // 5. MainCategory name match
+    item = await this.categoryItemRepository.findOne({
+      where: { subCategory: { mainCategory: { name: ILike(category) } } },
+      relations,
+    });
+    return item?.subCategory?.mainCategory ? item : null;
+  }
+
   // ------------------- TIER2 ASSIGNMENT METHODS ------------------- //
 
   /**
@@ -2266,10 +2316,7 @@ export class IncidentService {
    * Assign a specific pending Tier2 incident
    */
   private async assignPendingTier2Incident(incident: Incident): Promise<boolean> {
-    const categoryItem = await this.categoryItemRepository.findOne({
-      where: { name: incident.category },
-      relations: ['subCategory', 'subCategory.mainCategory'],
-    });
+    const categoryItem = await this.resolveCategoryItem(incident.category);
 
     if (!categoryItem?.subCategory?.mainCategory) {
       this.logger.warn(
@@ -2517,10 +2564,7 @@ export class IncidentService {
    * Assign a specific pending Tier3 incident
    */
   private async assignPendingTier3Incident(incident: Incident): Promise<boolean> {
-    const categoryItem = await this.categoryItemRepository.findOne({
-      where: { name: incident.category },
-      relations: ['subCategory', 'subCategory.mainCategory'],
-    });
+    const categoryItem = await this.resolveCategoryItem(incident.category);
 
     if (!categoryItem?.subCategory?.mainCategory) {
       this.logger.warn(
