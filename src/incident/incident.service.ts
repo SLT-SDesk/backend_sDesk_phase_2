@@ -529,7 +529,10 @@ export class IncidentService {
       this.logger.log(`[UPDATE] Incident ${incident_number}: isClosing=${isClosingIncident}, isTransfer=${isTransferOperation}`);
 
       // --- Category Change Logic ---
-      const categoryChanged = incidentDto.category && incidentDto.category !== originalCategory;
+      // Skip category change logic during transfer operations (Tier2/Tier3/TeamAdmin),
+      // because the frontend may send a category ID (e.g. 'SUB028') during transfers
+      // which is not a category name and will fail DB lookup.
+      const categoryChanged = !isTransferOperation && incidentDto.category && incidentDto.category !== originalCategory;
 
       if (categoryChanged) {
         let mainCategoryId, teamName, subCategoryName;
@@ -718,11 +721,13 @@ export class IncidentService {
 
         const searchCat = incidentDto.category || incident.category;
         const searchCategoryName = searchCat ? searchCat.trim().toLowerCase() : '';
+        const searchCategoryCode = searchCat ? searchCat.trim() : '';
+
         const categoryItem = await this.categoryItemRepository
           .createQueryBuilder('item')
           .leftJoinAndSelect('item.subCategory', 'subCategory')
           .leftJoinAndSelect('subCategory.mainCategory', 'mainCategory')
-          .where('LOWER(TRIM(item.name)) = :name', { name: searchCategoryName })
+          .where('LOWER(TRIM(item.name)) = :name OR item.category_code = :code', { name: searchCategoryName, code: searchCategoryCode })
           .getOne();
 
         let mainCategoryId, teamName;
@@ -733,13 +738,25 @@ export class IncidentService {
           const subCat = await this.subCategoryRepository
             .createQueryBuilder('sub')
             .leftJoinAndSelect('sub.mainCategory', 'mainCategory')
-            .where('LOWER(TRIM(sub.name)) = :name', { name: searchCategoryName })
+            .where('LOWER(TRIM(sub.name)) = :name OR sub.category_code = :code', { name: searchCategoryName, code: searchCategoryCode })
             .getOne();
           if (subCat) {
             mainCategoryId = subCat.mainCategory?.id;
             teamName = subCat.mainCategory?.name;
           } else {
-            throw new BadRequestException(`Category '${searchCat}' not found`);
+            // Also check main category directly just in case they selected a main category directly for transfer
+            const mainCatRepo = this.subCategoryRepository.manager.getRepository('MainCategory');
+            const mainCat = await mainCatRepo
+              .createQueryBuilder('main')
+              .where('LOWER(TRIM(main.name)) = :name OR main.category_code = :code', { name: searchCategoryName, code: searchCategoryCode })
+              .getOne() as any;
+
+            if (mainCat) {
+              mainCategoryId = mainCat.id;
+              teamName = mainCat.name;
+            } else {
+              throw new BadRequestException(`Category '${searchCat}' not found`);
+            }
           }
         }
 
@@ -783,11 +800,13 @@ export class IncidentService {
 
         const searchCat = incidentDto.category || incident.category;
         const searchCategoryName = searchCat ? searchCat.trim().toLowerCase() : '';
+        const searchCategoryCode = searchCat ? searchCat.trim() : '';
+
         const categoryItem = await this.categoryItemRepository
           .createQueryBuilder('item')
           .leftJoinAndSelect('item.subCategory', 'subCategory')
           .leftJoinAndSelect('subCategory.mainCategory', 'mainCategory')
-          .where('LOWER(TRIM(item.name)) = :name', { name: searchCategoryName })
+          .where('LOWER(TRIM(item.name)) = :name OR item.category_code = :code', { name: searchCategoryName, code: searchCategoryCode })
           .getOne();
 
         let mainCategoryId, teamName;
@@ -798,13 +817,25 @@ export class IncidentService {
           const subCat = await this.subCategoryRepository
             .createQueryBuilder('sub')
             .leftJoinAndSelect('sub.mainCategory', 'mainCategory')
-            .where('LOWER(TRIM(sub.name)) = :name', { name: searchCategoryName })
+            .where('LOWER(TRIM(sub.name)) = :name OR sub.category_code = :code', { name: searchCategoryName, code: searchCategoryCode })
             .getOne();
           if (subCat) {
             mainCategoryId = subCat.mainCategory?.id;
             teamName = subCat.mainCategory?.name;
           } else {
-            throw new BadRequestException(`Category '${searchCat}' not found`);
+            // Also check main category directly just in case they selected a main category directly for transfer
+            const mainCatRepository = this.subCategoryRepository.manager.getRepository('MainCategory');
+            const mainCat = await mainCatRepository
+              .createQueryBuilder('main')
+              .where('LOWER(TRIM(main.name)) = :name OR main.category_code = :code', { name: searchCategoryName, code: searchCategoryCode })
+              .getOne() as any;
+
+            if (mainCat) {
+              mainCategoryId = mainCat.id;
+              teamName = mainCat.name;
+            } else {
+              throw new BadRequestException(`Category '${searchCat}' not found`);
+            }
           }
         }
 
