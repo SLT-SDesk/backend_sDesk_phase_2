@@ -9,7 +9,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, ILike, In, Repository } from 'typeorm';
-import { CategoryItem, SubCategory } from '../Categories/Entities/Categories.entity';
+import { CategoryItem, SubCategory, MainCategory } from '../Categories/Entities/Categories.entity';
 import { io } from '../main';
 import { TeamAdmin } from '../teamadmin/entities/teamadmin.entity';
 import { Technician } from '../technician/entities/technician.entity';
@@ -42,6 +42,8 @@ export class IncidentService {
     private categoryItemRepository: Repository<CategoryItem>,
     @InjectRepository(SubCategory)
     private subCategoryRepository: Repository<SubCategory>,
+    @InjectRepository(MainCategory)
+    private mainCategoryRepository: Repository<MainCategory>,
     @InjectRepository(TeamAdmin)
     private teamAdminRepository: Repository<TeamAdmin>,
     private notificationsService: NotificationsService,
@@ -2115,6 +2117,33 @@ export class IncidentService {
     return item?.subCategory?.mainCategory ? item : null;
   }
 
+  /**
+   * Resolves the corresponding team (MainCategory) for a given category name by fallback logic.
+   */
+  private async resolveTeamForCategory(category: string): Promise<{ id: string, name: string } | null> {
+    const item = await this.resolveCategoryItem(category);
+    if (item?.subCategory?.mainCategory) {
+      return { id: item.subCategory.mainCategory.id, name: item.subCategory.mainCategory.name };
+    }
+
+    const sub = await this.subCategoryRepository.findOne({
+      where: [{ name: ILike(category) }, { category_code: category }],
+      relations: ['mainCategory'],
+    });
+    if (sub?.mainCategory) {
+      return { id: sub.mainCategory.id, name: sub.mainCategory.name };
+    }
+
+    const main = await this.mainCategoryRepository.findOne({
+      where: [{ name: ILike(category) }, { category_code: category }],
+    });
+    if (main) {
+      return { id: main.id, name: main.name };
+    }
+
+    return null;
+  }
+
   // ------------------- TIER2 ASSIGNMENT METHODS ------------------- //
 
   /**
@@ -2316,17 +2345,17 @@ export class IncidentService {
    * Assign a specific pending Tier2 incident
    */
   private async assignPendingTier2Incident(incident: Incident): Promise<boolean> {
-    const categoryItem = await this.resolveCategoryItem(incident.category);
+    const team = await this.resolveTeamForCategory(incident.category);
 
-    if (!categoryItem?.subCategory?.mainCategory) {
+    if (!team) {
       this.logger.warn(
         `[TIER2-PENDING] Could not find team for category '${incident.category}' on incident ${incident.incident_number}. Skipping.`,
       );
       return false;
     }
 
-    const mainCategoryId = categoryItem.subCategory.mainCategory.id;
-    const teamName = categoryItem.subCategory.mainCategory.name;
+    const mainCategoryId = team.id;
+    const teamName = team.name;
 
     // Try to assign to active Tier2 technician
     const tier2Result = await this.tryAssignToTier2Technician(
@@ -2564,17 +2593,17 @@ export class IncidentService {
    * Assign a specific pending Tier3 incident
    */
   private async assignPendingTier3Incident(incident: Incident): Promise<boolean> {
-    const categoryItem = await this.resolveCategoryItem(incident.category);
+    const team = await this.resolveTeamForCategory(incident.category);
 
-    if (!categoryItem?.subCategory?.mainCategory) {
+    if (!team) {
       this.logger.warn(
         `[TIER3-PENDING] Could not find team for category '${incident.category}' on incident ${incident.incident_number}. Skipping.`,
       );
       return false;
     }
 
-    const mainCategoryId = categoryItem.subCategory.mainCategory.id;
-    const teamName = categoryItem.subCategory.mainCategory.name;
+    const mainCategoryId = team.id;
+    const teamName = team.name;
 
     // Try to assign to active Tier3 technician
     const tier3Result = await this.tryAssignToTier3Technician(
