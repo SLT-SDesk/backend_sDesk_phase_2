@@ -11,7 +11,7 @@ import { Incident, IncidentStatus, IncidentPriority } from '../entities/incident
 import { IncidentDto } from '../dto/incident.dto';
 import { IncidentHistory } from '../entities/incident-history.entity';
 import { Technician } from '../../technician/entities/technician.entity';
-import { CategoryItem } from '../../Categories/Entities/Categories.entity';
+import { CategoryItem, SubCategory } from '../../Categories/Entities/Categories.entity';
 import { SLTUser } from '../../sltusers/entities/sltuser.entity';
 import { TeamAdmin } from '../../teamadmin/entities/teamadmin.entity';
 import { TechnicianPerformance } from '../entities/technician-performance.entity';
@@ -73,6 +73,11 @@ describe('IncidentService', () => {
     findOne: jest.fn(),
     find: jest.fn(),
     createQueryBuilder: jest.fn(),
+  };
+
+  const mockSubCategoryRepository = {
+    findOne: jest.fn(),
+    find: jest.fn(),
   };
 
   const mockSltUserRepository = {
@@ -174,6 +179,10 @@ describe('IncidentService', () => {
         {
           provide: getRepositoryToken(CategoryItem),
           useValue: mockCategoryItemRepository,
+        },
+        {
+          provide: getRepositoryToken(SubCategory),
+          useValue: mockSubCategoryRepository,
         },
         {
           provide: getRepositoryToken(SLTUser),

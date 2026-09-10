@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { CategoryItem, SubCategory } from '../Categories/Entities/Categories.entity';
+import { CategoryItem, SubCategory, MainCategory } from '../Categories/Entities/Categories.entity';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { TeamAdmin } from '../teamadmin/entities/teamadmin.entity';
 import { Technician } from '../technician/entities/technician.entity';
@@ -25,6 +25,7 @@ import { ErpModule } from 'src/erp/erp.module';
       TeamAdmin,
       TechnicianPerformance, //new**
       SubCategory,
+      MainCategory,
     ]),
     TechnicianModule,
     NotificationsModule,
