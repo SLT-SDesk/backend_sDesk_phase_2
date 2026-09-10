@@ -8,8 +8,8 @@ import {
 import { NotificationsService } from '../notifications/notifications.service';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, In, Repository } from 'typeorm';
-import { CategoryItem, SubCategory } from '../Categories/Entities/Categories.entity';
+import { Between, ILike, In, Repository } from 'typeorm';
+import { CategoryItem, SubCategory, MainCategory } from '../Categories/Entities/Categories.entity';
 import { io } from '../main';
 import { TeamAdmin } from '../teamadmin/entities/teamadmin.entity';
 import { Technician } from '../technician/entities/technician.entity';
@@ -42,6 +42,8 @@ export class IncidentService {
     private categoryItemRepository: Repository<CategoryItem>,
     @InjectRepository(SubCategory)
     private subCategoryRepository: Repository<SubCategory>,
+    @InjectRepository(MainCategory)
+    private mainCategoryRepository: Repository<MainCategory>,
     @InjectRepository(TeamAdmin)
     private teamAdminRepository: Repository<TeamAdmin>,
     private notificationsService: NotificationsService,
@@ -537,7 +539,10 @@ export class IncidentService {
       this.logger.log(`[UPDATE] Incident ${incident_number}: isClosing=${isClosingIncident}, isTransfer=${isTransferOperation}`);
 
       // --- Category Change Logic ---
-      const categoryChanged = incidentDto.category && incidentDto.category !== originalCategory;
+      // Skip category change logic during transfer operations (Tier2/Tier3/TeamAdmin),
+      // because the frontend may send a category ID (e.g. 'SUB028') during transfers
+      // which is not a category name and will fail DB lookup.
+      const categoryChanged = !isTransferOperation && incidentDto.category && incidentDto.category !== originalCategory;
 
       if (categoryChanged) {
         let mainCategoryId, teamName, subCategoryName;
@@ -726,11 +731,13 @@ export class IncidentService {
 
         const searchCat = incidentDto.category || incident.category;
         const searchCategoryName = searchCat ? searchCat.trim().toLowerCase() : '';
+        const searchCategoryCode = searchCat ? searchCat.trim() : '';
+
         const categoryItem = await this.categoryItemRepository
           .createQueryBuilder('item')
           .leftJoinAndSelect('item.subCategory', 'subCategory')
           .leftJoinAndSelect('subCategory.mainCategory', 'mainCategory')
-          .where('LOWER(TRIM(item.name)) = :name', { name: searchCategoryName })
+          .where('LOWER(TRIM(item.name)) = :name OR item.category_code = :code', { name: searchCategoryName, code: searchCategoryCode })
           .getOne();
 
         let mainCategoryId, teamName;
@@ -741,13 +748,25 @@ export class IncidentService {
           const subCat = await this.subCategoryRepository
             .createQueryBuilder('sub')
             .leftJoinAndSelect('sub.mainCategory', 'mainCategory')
-            .where('LOWER(TRIM(sub.name)) = :name', { name: searchCategoryName })
+            .where('LOWER(TRIM(sub.name)) = :name OR sub.category_code = :code', { name: searchCategoryName, code: searchCategoryCode })
             .getOne();
           if (subCat) {
             mainCategoryId = subCat.mainCategory?.id;
             teamName = subCat.mainCategory?.name;
           } else {
-            throw new BadRequestException(`Category '${searchCat}' not found`);
+            // Also check main category directly just in case they selected a main category directly for transfer
+            const mainCatRepo = this.subCategoryRepository.manager.getRepository('MainCategory');
+            const mainCat = await mainCatRepo
+              .createQueryBuilder('main')
+              .where('LOWER(TRIM(main.name)) = :name OR main.category_code = :code', { name: searchCategoryName, code: searchCategoryCode })
+              .getOne() as any;
+
+            if (mainCat) {
+              mainCategoryId = mainCat.id;
+              teamName = mainCat.name;
+            } else {
+              throw new BadRequestException(`Category '${searchCat}' not found`);
+            }
           }
         }
 
@@ -791,11 +810,13 @@ export class IncidentService {
 
         const searchCat = incidentDto.category || incident.category;
         const searchCategoryName = searchCat ? searchCat.trim().toLowerCase() : '';
+        const searchCategoryCode = searchCat ? searchCat.trim() : '';
+
         const categoryItem = await this.categoryItemRepository
           .createQueryBuilder('item')
           .leftJoinAndSelect('item.subCategory', 'subCategory')
           .leftJoinAndSelect('subCategory.mainCategory', 'mainCategory')
-          .where('LOWER(TRIM(item.name)) = :name', { name: searchCategoryName })
+          .where('LOWER(TRIM(item.name)) = :name OR item.category_code = :code', { name: searchCategoryName, code: searchCategoryCode })
           .getOne();
 
         let mainCategoryId, teamName;
@@ -806,13 +827,25 @@ export class IncidentService {
           const subCat = await this.subCategoryRepository
             .createQueryBuilder('sub')
             .leftJoinAndSelect('sub.mainCategory', 'mainCategory')
-            .where('LOWER(TRIM(sub.name)) = :name', { name: searchCategoryName })
+            .where('LOWER(TRIM(sub.name)) = :name OR sub.category_code = :code', { name: searchCategoryName, code: searchCategoryCode })
             .getOne();
           if (subCat) {
             mainCategoryId = subCat.mainCategory?.id;
             teamName = subCat.mainCategory?.name;
           } else {
-            throw new BadRequestException(`Category '${searchCat}' not found`);
+            // Also check main category directly just in case they selected a main category directly for transfer
+            const mainCatRepository = this.subCategoryRepository.manager.getRepository('MainCategory');
+            const mainCat = await mainCatRepository
+              .createQueryBuilder('main')
+              .where('LOWER(TRIM(main.name)) = :name OR main.category_code = :code', { name: searchCategoryName, code: searchCategoryCode })
+              .getOne() as any;
+
+            if (mainCat) {
+              mainCategoryId = mainCat.id;
+              teamName = mainCat.name;
+            } else {
+              throw new BadRequestException(`Category '${searchCat}' not found`);
+            }
           }
         }
 
@@ -2050,6 +2083,83 @@ export class IncidentService {
     await this.incidentHistoryRepository.save(history);
   }
 
+  // ------------------- CATEGORY RESOLUTION HELPER ------------------- //
+
+  /**
+   * Resolve a CategoryItem from an incident's category string using a
+   * 5-stage fallback chain:
+   *  1. Exact name match
+   *  2. Case-insensitive name match
+   *  3. category_code match
+   *  4. SubCategory name match  → return first CategoryItem in that sub
+   *  5. MainCategory name match → return first CategoryItem in that main
+   */
+  private async resolveCategoryItem(category: string): Promise<CategoryItem | null> {
+    const relations = ['subCategory', 'subCategory.mainCategory'];
+
+    // 1. Exact name match (fast path)
+    let item = await this.categoryItemRepository.findOne({
+      where: { name: category },
+      relations,
+    });
+    if (item?.subCategory?.mainCategory) return item;
+
+    // 2. Case-insensitive name match
+    item = await this.categoryItemRepository.findOne({
+      where: { name: ILike(category) },
+      relations,
+    });
+    if (item?.subCategory?.mainCategory) return item;
+
+    // 3. category_code match (e.g. 'CAT154')
+    item = await this.categoryItemRepository.findOne({
+      where: { category_code: category },
+      relations,
+    });
+    if (item?.subCategory?.mainCategory) return item;
+
+    // 4. SubCategory name match
+    item = await this.categoryItemRepository.findOne({
+      where: { subCategory: { name: ILike(category) } },
+      relations,
+    });
+    if (item?.subCategory?.mainCategory) return item;
+
+    // 5. MainCategory name match
+    item = await this.categoryItemRepository.findOne({
+      where: { subCategory: { mainCategory: { name: ILike(category) } } },
+      relations,
+    });
+    return item?.subCategory?.mainCategory ? item : null;
+  }
+
+  /**
+   * Resolves the corresponding team (MainCategory) for a given category name by fallback logic.
+   */
+  private async resolveTeamForCategory(category: string): Promise<{ id: string, name: string } | null> {
+    const item = await this.resolveCategoryItem(category);
+    if (item?.subCategory?.mainCategory) {
+      return { id: item.subCategory.mainCategory.id, name: item.subCategory.mainCategory.name };
+    }
+
+    const sub = await this.subCategoryRepository.findOne({
+      where: [{ name: ILike(category) }, { category_code: category }],
+      relations: ['mainCategory'],
+    });
+    if (sub?.mainCategory) {
+      return { id: sub.mainCategory.id, name: sub.mainCategory.name };
+    }
+
+    const main = await this.mainCategoryRepository.findOne({
+      where: [{ name: ILike(category) }, { category_code: category }],
+    });
+    if (main) {
+      return { id: main.id, name: main.name };
+    }
+
+    return null;
+  }
+
   // ------------------- TIER2 ASSIGNMENT METHODS ------------------- //
 
   /**
@@ -2251,20 +2361,17 @@ export class IncidentService {
    * Assign a specific pending Tier2 incident
    */
   private async assignPendingTier2Incident(incident: Incident): Promise<boolean> {
-    const categoryItem = await this.categoryItemRepository.findOne({
-      where: { name: incident.category },
-      relations: ['subCategory', 'subCategory.mainCategory'],
-    });
+    const team = await this.resolveTeamForCategory(incident.category);
 
-    if (!categoryItem?.subCategory?.mainCategory) {
+    if (!team) {
       this.logger.warn(
         `[TIER2-PENDING] Could not find team for category '${incident.category}' on incident ${incident.incident_number}. Skipping.`,
       );
       return false;
     }
 
-    const mainCategoryId = categoryItem.subCategory.mainCategory.id;
-    const teamName = categoryItem.subCategory.mainCategory.name;
+    const mainCategoryId = team.id;
+    const teamName = team.name;
 
     // Try to assign to active Tier2 technician
     const tier2Result = await this.tryAssignToTier2Technician(
@@ -2502,20 +2609,17 @@ export class IncidentService {
    * Assign a specific pending Tier3 incident
    */
   private async assignPendingTier3Incident(incident: Incident): Promise<boolean> {
-    const categoryItem = await this.categoryItemRepository.findOne({
-      where: { name: incident.category },
-      relations: ['subCategory', 'subCategory.mainCategory'],
-    });
+    const team = await this.resolveTeamForCategory(incident.category);
 
-    if (!categoryItem?.subCategory?.mainCategory) {
+    if (!team) {
       this.logger.warn(
         `[TIER3-PENDING] Could not find team for category '${incident.category}' on incident ${incident.incident_number}. Skipping.`,
       );
       return false;
     }
 
-    const mainCategoryId = categoryItem.subCategory.mainCategory.id;
-    const teamName = categoryItem.subCategory.mainCategory.name;
+    const mainCategoryId = team.id;
+    const teamName = team.name;
 
     // Try to assign to active Tier3 technician
     const tier3Result = await this.tryAssignToTier3Technician(
