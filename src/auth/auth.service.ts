@@ -164,16 +164,14 @@ export class AuthService {
 
           console.log('ERP EMPLOYEE:', employee);
 
-          if (!employee) {
-            throw new UnauthorizedException(
-              `Employee not found in ERP for service number ${serviceNum}`,
-            );
+          if (employee) {
+            finalServiceNum = employee.employeeNumber;
+            finalDisplayName = employee.employeeName;
+            finalEmail = employee.email?.trim() || email;
+            finalContactNumber = employee.mobileNo;
+          } else {
+            console.warn(`[Auth] Employee not found in ERP for ${serviceNum}. Falling back to Microsoft Token data.`);
           }
-
-          finalServiceNum = employee.employeeNumber;
-          finalDisplayName = employee.employeeName;
-          finalEmail = employee.email?.trim() || email;
-          finalContactNumber = employee.mobileNo;
         }
 
         let role = await this.userRoleService.getRoleByServiceNum(finalServiceNum);
