@@ -1,4 +1,4 @@
-name: Deploy SDesk Backend (Testing)
+name: sDesk Backend Deploy
 
 on:
   push:
@@ -55,10 +55,7 @@ jobs:
             npm run build
 
             echo "Restarting Backend using PM2..."
-            sudo pm2 status
-            sudo pm2 delete sdesk || true
-            sudo pm2 start dist/main.js --name sdesk --update-env
-            pm2 save
+            pm2 restart sdesk-backend
             
             echo "Cleaning up temp files..."
             rm -rf ~/sdesk_backend_tmp
