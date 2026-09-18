@@ -1500,10 +1500,7 @@ export class IncidentService {
   }
 
   private async assignPendingIncident(incident: Incident): Promise<boolean> {
-    const categoryItem = await this.categoryItemRepository.findOne({
-      where: { name: incident.category },
-      relations: ['subCategory', 'subCategory.mainCategory'],
-    });
+    const categoryItem = await this.resolveCategoryItem(incident.category);
 
     if (!categoryItem?.subCategory?.mainCategory) {
       this.logger.warn(
@@ -1657,11 +1654,8 @@ export class IncidentService {
         return false; // No skills assigned to technician
       }
 
-      // Find the CategoryItem for the incident's category
-      const categoryItem = await this.categoryItemRepository.findOne({
-        where: { name: incident.category },
-        relations: ['subCategory', 'subCategory.mainCategory'],
-      });
+      // Find the CategoryItem for the incident's category using the fallback resolver
+      const categoryItem = await this.resolveCategoryItem(incident.category);
 
       if (!categoryItem) {
         this.logger.warn(`[SKILL-CHECK] Category '${incident.category}' not found in database`);
