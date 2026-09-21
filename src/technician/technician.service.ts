@@ -12,19 +12,24 @@ import { Technician } from './entities/technician.entity';
 import { CreateTechnicianDto } from './dto/create-technician.dto';
 import { notifyInactiveByAdmin, emitTechnicianStatusChange } from '../main';
 import { Session } from '../sessions/entities/session.entity';
+import { UserRoleService } from '../user-role/user-role.service';
+import { UserRoleEnum } from '../user-role/entities/user-role.entity';
 
 @Injectable()
 export class TechnicianService {
   constructor(
     @InjectRepository(Technician)
     private readonly technicianRepo: Repository<Technician>,
-  ) {}
+    private readonly userRoleService: UserRoleService,
+  ) { }
 
   // Create a technician
   async createTechnician(dto: CreateTechnicianDto): Promise<Technician> {
     try {
       const technician = this.technicianRepo.create(dto);
-      return await this.technicianRepo.save(technician);
+      const savedTech = await this.technicianRepo.save(technician);
+      await this.userRoleService.assignRole(savedTech.serviceNum, UserRoleEnum.TECHNICIAN);
+      return savedTech;
     } catch (error) {
       if (error.code === '23505') {
         throw new ConflictException(
@@ -85,6 +90,11 @@ export class TechnicianService {
         notifyInactiveByAdmin(serviceNum);
       }
 
+      // Automatically force sync the role in case it is a legacy/unsynced technician
+      if (willBeActive) {
+        await this.userRoleService.assignRole(serviceNum, UserRoleEnum.TECHNICIAN);
+      }
+
       return savedTech;
     } catch (error) {
       if (error instanceof NotFoundException) throw error;
@@ -102,16 +112,17 @@ export class TechnicianService {
           `Technician with Service Number "${serviceNum}" not found.`,
         );
       }
-      
+
       // Delete associated sessions first (cascade delete)
       // Sessions reference technicians, so we need to remove them first
       await this.technicianRepo.query(
         'DELETE FROM sessions WHERE technician_service_number = $1',
         [serviceNum],
       );
-      
+
       // Now delete the technician
       await this.technicianRepo.delete({ serviceNum });
+      await this.userRoleService.assignRole(serviceNum, UserRoleEnum.USER);
     } catch (error) {
       if (error instanceof NotFoundException) throw error;
       throw new InternalServerErrorException('Failed to delete technician.');
