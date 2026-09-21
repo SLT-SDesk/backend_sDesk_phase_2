@@ -730,45 +730,14 @@ export class IncidentService {
         }
 
         const searchCat = incidentDto.category || incident.category;
-        const searchCategoryName = searchCat ? searchCat.trim().toLowerCase() : '';
-        const searchCategoryCode = searchCat ? searchCat.trim() : '';
+        const categoryItem = await this.resolveCategoryItem(searchCat);
 
-        const categoryItem = await this.categoryItemRepository
-          .createQueryBuilder('item')
-          .leftJoinAndSelect('item.subCategory', 'subCategory')
-          .leftJoinAndSelect('subCategory.mainCategory', 'mainCategory')
-          .where('LOWER(TRIM(item.name)) = :name OR item.category_code = :code', { name: searchCategoryName, code: searchCategoryCode })
-          .getOne();
-
-        let mainCategoryId, teamName;
-        if (categoryItem) {
-          mainCategoryId = categoryItem.subCategory?.mainCategory?.id;
-          teamName = categoryItem.subCategory?.mainCategory?.name;
-        } else {
-          const subCat = await this.subCategoryRepository
-            .createQueryBuilder('sub')
-            .leftJoinAndSelect('sub.mainCategory', 'mainCategory')
-            .where('LOWER(TRIM(sub.name)) = :name OR sub.category_code = :code', { name: searchCategoryName, code: searchCategoryCode })
-            .getOne();
-          if (subCat) {
-            mainCategoryId = subCat.mainCategory?.id;
-            teamName = subCat.mainCategory?.name;
-          } else {
-            // Also check main category directly just in case they selected a main category directly for transfer
-            const mainCatRepo = this.subCategoryRepository.manager.getRepository('MainCategory');
-            const mainCat = await mainCatRepo
-              .createQueryBuilder('main')
-              .where('LOWER(TRIM(main.name)) = :name OR main.category_code = :code', { name: searchCategoryName, code: searchCategoryCode })
-              .getOne() as any;
-
-            if (mainCat) {
-              mainCategoryId = mainCat.id;
-              teamName = mainCat.name;
-            } else {
-              throw new BadRequestException(`Category '${searchCat}' not found`);
-            }
-          }
+        if (!categoryItem || !categoryItem.subCategory?.mainCategory) {
+          throw new BadRequestException(`Category '${searchCat}' not found`);
         }
+
+        const mainCategoryId = categoryItem.subCategory.mainCategory.id;
+        const teamName = categoryItem.subCategory.mainCategory.name;
 
         // Try to assign to active Tier2 technician
         const tier2Result = await this.tryAssignToTier2Technician(
@@ -809,45 +778,14 @@ export class IncidentService {
         }
 
         const searchCat = incidentDto.category || incident.category;
-        const searchCategoryName = searchCat ? searchCat.trim().toLowerCase() : '';
-        const searchCategoryCode = searchCat ? searchCat.trim() : '';
+        const categoryItem = await this.resolveCategoryItem(searchCat);
 
-        const categoryItem = await this.categoryItemRepository
-          .createQueryBuilder('item')
-          .leftJoinAndSelect('item.subCategory', 'subCategory')
-          .leftJoinAndSelect('subCategory.mainCategory', 'mainCategory')
-          .where('LOWER(TRIM(item.name)) = :name OR item.category_code = :code', { name: searchCategoryName, code: searchCategoryCode })
-          .getOne();
-
-        let mainCategoryId, teamName;
-        if (categoryItem) {
-          mainCategoryId = categoryItem.subCategory?.mainCategory?.id;
-          teamName = categoryItem.subCategory?.mainCategory?.name;
-        } else {
-          const subCat = await this.subCategoryRepository
-            .createQueryBuilder('sub')
-            .leftJoinAndSelect('sub.mainCategory', 'mainCategory')
-            .where('LOWER(TRIM(sub.name)) = :name OR sub.category_code = :code', { name: searchCategoryName, code: searchCategoryCode })
-            .getOne();
-          if (subCat) {
-            mainCategoryId = subCat.mainCategory?.id;
-            teamName = subCat.mainCategory?.name;
-          } else {
-            // Also check main category directly just in case they selected a main category directly for transfer
-            const mainCatRepository = this.subCategoryRepository.manager.getRepository('MainCategory');
-            const mainCat = await mainCatRepository
-              .createQueryBuilder('main')
-              .where('LOWER(TRIM(main.name)) = :name OR main.category_code = :code', { name: searchCategoryName, code: searchCategoryCode })
-              .getOne() as any;
-
-            if (mainCat) {
-              mainCategoryId = mainCat.id;
-              teamName = mainCat.name;
-            } else {
-              throw new BadRequestException(`Category '${searchCat}' not found`);
-            }
-          }
+        if (!categoryItem || !categoryItem.subCategory?.mainCategory) {
+          throw new BadRequestException(`Category '${searchCat}' not found`);
         }
+
+        const mainCategoryId = categoryItem.subCategory.mainCategory.id;
+        const teamName = categoryItem.subCategory.mainCategory.name;
 
         // Try to assign to active Tier3 technician
         const tier3Result = await this.tryAssignToTier3Technician(
