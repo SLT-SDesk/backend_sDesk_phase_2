@@ -7,48 +7,11 @@ on:
   workflow_dispatch:
 
 jobs:
-  # 1. Check Code Quality
-  Code_Quality_Checks:
-    name: Code Quality Checks
+  Deploy_Backend:
+    name: Build & Deploy Backend
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/testing'
-    steps:
-      - name: ⬇️ Checkout code
-        uses: actions/checkout@v4
-      
-      - name: 🛠️ Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          
-      - name: 🔍 Check Code Quality
-        run: echo "Code quality checks passed for Backend."
-
-  # 2. Clean old files and prepare server
-  Prepare_Server:
-    name: Prepare Server Environment
-    needs: Code_Quality_Checks
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/testing'
-    steps:
-      - name: 🧹 Clean old temp files
-        uses: appleboy/ssh-action@v0.1.10
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USERNAME }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: 3251
-          script: |
-            echo "Preparing deployment directories..."
-            mkdir -p ~/sdesk_backend_tmp
-            rm -rf ~/sdesk_backend_tmp/*
-
-  # 3. Upload new code to server
-  Upload_Code:
-    name: Upload Backend Code
-    needs: Prepare_Server
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/testing'
+    
     steps:
       - name: ⬇️ Checkout code
         uses: actions/checkout@v4
@@ -60,18 +23,11 @@ jobs:
           username: ${{ secrets.SSH_USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: 3251
-          source: "./"
-          target: "/home/${{ secrets.SSH_USERNAME }}/sdesk_backend_tmp/"
-          strip_components: 1
+          source: "."
+          target: "/home/${{ secrets.SSH_USERNAME }}/sdesk_backend_tmp"
+          overwrite: true
 
-  # 4. Install Packages and Build on the server
-  Build_Application:
-    name: Build Application
-    needs: Upload_Code
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/testing'
-    steps:
-      - name: 📦 Install & Build on Server
+      - name: 📦 Build and Deploy on Server
         uses: appleboy/ssh-action@v0.1.10
         with:
           host: ${{ secrets.SSH_HOST }}
@@ -79,41 +35,52 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: 3251
           script: |
+            BASE_DIR="/var/www/sdesk_new/backend_sDesk_phase_2"
+            TMP_SRC="/home/${{ secrets.SSH_USERNAME }}/sdesk_backend_tmp"
+
+            echo "Preparing directories..."
+            sudo mkdir -p $BASE_DIR
+            
+            # 1. Backup the .env file before deleting old code (Very Important)
+            if [ -f "$BASE_DIR/.env" ]; then
+              echo "Backing up .env file..."
+              sudo cp $BASE_DIR/.env /home/${{ secrets.SSH_USERNAME }}/env_backup_temp
+            fi
+
+            # 2. Remove old code and copy the new code
             echo "Removing old backend code..."
-            sudo rm -rf /var/www/sdesk_new/backend_sDesk_phase_2/*
+            sudo rm -rf $BASE_DIR/*
             
             echo "Copying new backend..."
-            sudo cp -r ~/sdesk_backend_tmp/* /var/www/sdesk_new/backend_sDesk_phase_2/
+            sudo cp -r $TMP_SRC/* $BASE_DIR/
             
+            # 3. Restore the backed-up .env file
+            if [ -f "/home/${{ secrets.SSH_USERNAME }}/env_backup_temp" ]; then
+              echo "Restoring .env file..."
+              sudo mv /home/${{ secrets.SSH_USERNAME }}/env_backup_temp $BASE_DIR/.env
+            fi
+
+            # 4. Set permissions for npm install
+            echo "Setting permissions..."
+            sudo chown -R ${{ secrets.SSH_USERNAME }}:${{ secrets.SSH_USERNAME }} $BASE_DIR
+
+            # 5. Install dependencies and build the application
             echo "Installing backend dependencies..."
-            cd /var/www/sdesk_new/backend_sDesk_phase_2
+            cd $BASE_DIR
             rm -rf package-lock.json node_modules
             npm install
             
             echo "Building application..."
             npm run build
 
-  # 5. Restart PM2 with new code
-  Production_Deployment:
-    name: Direct Production Deployment
-    needs: Build_Application
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/testing'
-    steps:
-      - name: 🔄 Restart PM2 & Cleanup
-        uses: appleboy/ssh-action@v0.1.10
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USERNAME }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: 3251
-          script: |
+            # 6. Restart the server using PM2
             echo "Restarting Backend using PM2..."
             pm2 restart sdesk-backend
             
+            # 7. Clean up temporary files
             echo "Cleaning up temp files..."
-            rm -rf ~/sdesk_backend_tmp
-            
+            rm -rf $TMP_SRC
+
             echo "---------------------------------------------------------------------"
             echo "| ✅ BACKEND DEPLOYMENT SUCCESS        | Time: $(date '+%Y-%m-%d %H:%M:%S') |"
             echo "====================================================================="
