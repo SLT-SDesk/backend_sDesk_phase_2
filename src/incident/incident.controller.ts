@@ -224,6 +224,8 @@ export class IncidentController {
   }
 
   @Get('dashboard-stats')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('user', 'admin', 'technician', 'teamLeader', 'superAdmin')
   async getDashboardStats(
     @Query('userType') userType?: string,
     @Query('technicianServiceNum') technicianServiceNum?: string,
@@ -449,7 +451,7 @@ export class IncidentController {
       throw error;
     }
   }
-// Get incident history*****
+  // Get incident history*****
   @Get(':incident_number/performance')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('user', 'admin', 'technician', 'teamLeader', 'superAdmin')
