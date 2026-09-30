@@ -34,7 +34,7 @@ export class TechnicianController {
     private readonly technicianService: TechnicianService,
     private readonly authService: AuthService,
     private readonly userRoleService: UserRoleService, // added for automatic role assignment
-  ) {}
+  ) { }
 
   @Get('technician/sessions/:serviceNum')
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -61,7 +61,7 @@ export class TechnicianController {
     serviceNum: string;
     name: string;
     sessions: Session[];
-  } []> {
+  }[]> {
     try {
       return await this.technicianService.getAllTechnicianNameWithSessionsByMainCategory(teamId);
     } catch (error) {
@@ -137,6 +137,8 @@ export class TechnicianController {
   }
 
   @Get('check-status')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('user', 'admin', 'technician', 'teamLeader', 'superAdmin')
   async checkStatus() {
     try {
       return await this.technicianService.checkTechnicianStatus();
@@ -189,14 +191,14 @@ export class TechnicianController {
   ): Promise<{ message: string }> {
     try {
       await this.technicianService.deleteTechnician(serviceNum);
-      
+
       // Also clean up the user_roles table entry for consistency
       try {
         await this.userRoleService.removeRole(serviceNum);
       } catch (e) {
         console.warn('Failed to remove user role entry during technician deletion', e);
       }
-      
+
       return { message: 'Technician deleted successfully.' };
     } catch (error) {
       throw new HttpException(
