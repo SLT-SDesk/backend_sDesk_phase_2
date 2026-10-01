@@ -1,13 +1,31 @@
 // src/team/dto/team.dto.ts
+import { IsString, IsNotEmpty, IsOptional, IsBoolean } from 'class-validator';
+
 export class CreateTeamDto {
+  @IsString()
+  @IsNotEmpty()
   name: string;
+
+  @IsString()
+  @IsOptional()
   description?: string;
+
+  @IsBoolean()
+  @IsOptional()
   isActive?: boolean;
 }
 
 export class UpdateTeamDto {
+  @IsString()
+  @IsOptional()
   name?: string;
+
+  @IsString()
+  @IsOptional()
   description?: string;
+
+  @IsBoolean()
+  @IsOptional()
   isActive?: boolean;
 }
 
