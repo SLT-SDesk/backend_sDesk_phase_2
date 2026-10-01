@@ -1,16 +1,20 @@
-import { IsString, IsEmail, IsOptional } from 'class-validator';
+import { IsString, IsEmail, IsOptional, IsNotEmpty } from 'class-validator';
 
 export class SLTUserDto {
   @IsString()
+  @IsNotEmpty()
   azureId!: string;
 
   @IsString()
+  @IsNotEmpty()
   serviceNum!: string;
 
   @IsString()
+  @IsNotEmpty()
   display_name!: string;
 
   @IsEmail()
+  @IsNotEmpty()
   email!: string;
 
   @IsOptional()
