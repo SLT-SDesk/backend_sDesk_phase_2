@@ -7,6 +7,7 @@ import { Server } from 'socket.io';
 import { join } from 'path';
 import * as express from 'express';
 import * as fs from 'fs';
+import { ValidationPipe } from '@nestjs/common';
 
 // Define the expected user data structure
 interface UserData {
@@ -46,6 +47,17 @@ export async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   app.use(cookieParser());
+
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+      transformOptions: {
+        enableImplicitConversion: true,
+      },
+    }),
+  );
 
   // Ensure uploads directory exists (handle both local and cloud storage)
   const uploadsDir = join(process.cwd(), 'uploads', 'incident_attachments');
