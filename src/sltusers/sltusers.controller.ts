@@ -15,11 +15,13 @@ import { SLTUser } from './entities/sltuser.entity';
 import { JwtAuthGuard } from '../middlewares/jwt-auth.guard';
 import { RolesGuard } from '../middlewares/roles.guard';
 import { Roles } from '../middlewares/roles.decorator';
+import { SLTUserDto } from './dto/sltuser.dto';
+import { UpdateSLTUserDto } from './dto/update-sltuser.dto';
 
 @Controller('sltusers')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class SLTUsersController {
-  constructor(private readonly sltUsersService: SLTUsersService) {}
+  constructor(private readonly sltUsersService: SLTUsersService) { }
 
   @Get()
   @Roles('admin', 'superAdmin', 'technician', 'user')
@@ -56,16 +58,16 @@ export class SLTUsersController {
 
   @Post()
   @Roles('admin', 'superAdmin')
-  async createUser(@Body() userData: Partial<SLTUser>): Promise<SLTUser> {
+  async createUser(@Body() userData: SLTUserDto): Promise<SLTUser> {
     try {
       return await this.sltUsersService.createUser(userData);
     } catch (error) {
       if (error instanceof HttpException) throw error;
       throw new HttpException(
         error &&
-        typeof error === 'object' &&
-        'message' in error &&
-        typeof (error as { message?: string }).message === 'string'
+          typeof error === 'object' &&
+          'message' in error &&
+          typeof (error as { message?: string }).message === 'string'
           ? (error as { message: string }).message
           : 'Failed to create user',
         HttpStatus.INTERNAL_SERVER_ERROR,
@@ -77,7 +79,7 @@ export class SLTUsersController {
   @Roles('admin', 'superAdmin')
   async updateUser(
     @Param('serviceNum') serviceNum: string,
-    @Body() userData: Partial<SLTUser>,
+    @Body() userData: UpdateSLTUserDto,
   ): Promise<SLTUser | null> {
     try {
       const user = await this.sltUsersService.updateUserByServiceNum(

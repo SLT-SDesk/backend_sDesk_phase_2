@@ -1,11 +1,13 @@
-import { IsString, IsBoolean, IsEnum, IsOptional } from 'class-validator';
+import { IsString, IsBoolean, IsEnum, IsOptional, IsNotEmpty } from 'class-validator';
 import { IncidentStatus, IncidentPriority } from '../entities/incident.entity';
 
 export class IncidentDto {
   @IsString()
+  @IsNotEmpty()
   informant!: string;
 
   @IsString()
+  @IsNotEmpty()
   location!: string;
 
   @IsString()
@@ -17,6 +19,7 @@ export class IncidentDto {
   update_by?: string;
 
   @IsString()
+  @IsNotEmpty()
   category!: string;
 
   @IsString()
@@ -24,9 +27,11 @@ export class IncidentDto {
   update_on?: string;
 
   @IsEnum(IncidentStatus)
+  @IsNotEmpty()
   status!: IncidentStatus;
 
   @IsEnum(IncidentPriority)
+  @IsNotEmpty()
   priority!: IncidentPriority;
 
   @IsString()
