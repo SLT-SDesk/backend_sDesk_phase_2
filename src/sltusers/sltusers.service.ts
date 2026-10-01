@@ -6,6 +6,8 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { QueryFailedError, Repository } from 'typeorm';
 import { SLTUser } from './entities/sltuser.entity';
+import { SLTUserDto } from './dto/sltuser.dto';
+import { UpdateSLTUserDto } from './dto/update-sltuser.dto';
 
 @Injectable()
 export class SLTUsersService {
@@ -13,13 +15,13 @@ export class SLTUsersService {
   constructor(
     @InjectRepository(SLTUser)
     private readonly sltUserRepository: Repository<SLTUser>,
-  ) {}
+  ) { }
 
   async findByAzureId(azureId: string): Promise<SLTUser | null> {
     return this.sltUserRepository.findOne({ where: { azureId } });
   }
 
-  async createUser(data: Partial<SLTUser>): Promise<SLTUser> {
+  async createUser(data: SLTUserDto): Promise<SLTUser> {
     const entity = this.sltUserRepository.create(data);
     try {
       return await this.sltUserRepository.save(entity);
@@ -53,7 +55,7 @@ export class SLTUsersService {
 
   async updateUser(
     azureId: string,
-    userData: Partial<SLTUser>,
+    userData: UpdateSLTUserDto,
   ): Promise<SLTUser | null> {
     const user = await this.sltUserRepository.findOne({ where: { azureId } });
     if (!user) return null;
@@ -94,7 +96,7 @@ export class SLTUsersService {
 
   async updateUserByServiceNum(
     serviceNum: string,
-    userData: Partial<SLTUser>,
+    userData: UpdateSLTUserDto,
   ): Promise<SLTUser | null> {
     const user = await this.sltUserRepository.findOne({
       where: { serviceNum },

@@ -41,17 +41,22 @@ export class CreateTechnicianDto {
   position?: 'technician' | 'teamLeader';
 
   @IsBoolean()
+  @IsNotEmpty()
   active: boolean;
 
   @IsString()
+  @IsNotEmpty()
   teamId: string;
 
   @IsString()
+  @IsNotEmpty()
   tier: string;
 
   @IsEmail()
+  @IsNotEmpty()
   email: string;
 
   @IsString()
+  @IsNotEmpty()
   contactNumber: string;
 }
