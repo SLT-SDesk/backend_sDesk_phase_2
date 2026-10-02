@@ -8,6 +8,7 @@ import { Server, Socket } from 'socket.io';
 import { join } from 'path';
 import * as express from 'express';
 import * as fs from 'fs';
+import { ValidationPipe } from '@nestjs/common';
 
 interface UserData {
   serviceNum: string;
@@ -47,6 +48,17 @@ export async function bootstrap() {
   app.use(helmet());
 
   app.use(cookieParser());
+
+   app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+      transformOptions: {
+        enableImplicitConversion: true,
+      },
+    }),
+  );
 
   const uploadsDir = join(process.cwd(), 'uploads', 'incident_attachments');
   try {
