@@ -1,5 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import helmet from 'helmet';
+import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 import * as cookieParser from 'cookie-parser';
 import { Request, Response, NextFunction } from 'express';
@@ -43,6 +44,14 @@ export function emitTechnicianStatusChange(
 
 export async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    }),
+  );
 
   app.use(helmet());
 
