@@ -9,7 +9,6 @@ import { Server, Socket } from 'socket.io';
 import { join } from 'path';
 import * as express from 'express';
 import * as fs from 'fs';
-import { ValidationPipe } from '@nestjs/common';
 
 interface UserData {
   serviceNum: string;
@@ -46,19 +45,11 @@ export function emitTechnicianStatusChange(
 export async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-    }),
-  );
-
   app.use(helmet());
 
   app.use(cookieParser());
 
-   app.useGlobalPipes(
+  app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
       forbidNonWhitelisted: true,
