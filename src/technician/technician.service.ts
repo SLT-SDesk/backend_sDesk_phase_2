@@ -5,6 +5,8 @@ import {
   NotFoundException,
   ConflictException,
   InternalServerErrorException,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -14,6 +16,7 @@ import { notifyInactiveByAdmin, emitTechnicianStatusChange } from '../main';
 import { Session } from '../sessions/entities/session.entity';
 import { UserRoleService } from '../user-role/user-role.service';
 import { UserRoleEnum } from '../user-role/entities/user-role.entity';
+import { TeamAdminService } from '../teamadmin/teamadmin.service';
 
 @Injectable()
 export class TechnicianService {
@@ -21,16 +24,27 @@ export class TechnicianService {
     @InjectRepository(Technician)
     private readonly technicianRepo: Repository<Technician>,
     private readonly userRoleService: UserRoleService,
+    @Inject(forwardRef(() => TeamAdminService))
+    private readonly teamAdminService: TeamAdminService,
   ) { }
 
   // Create a technician
   async createTechnician(dto: CreateTechnicianDto): Promise<Technician> {
     try {
+      // Role conflict check: prevent same service number being both technician and admin
+      const existingAdmin = await this.teamAdminService.findTeamAdminByServiceNumber(dto.serviceNum);
+      if (existingAdmin) {
+        throw new ConflictException(
+          `Service number ${dto.serviceNum} is already assigned as a Team Admin. Remove them from the admin role first.`,
+        );
+      }
+
       const technician = this.technicianRepo.create(dto);
       const savedTech = await this.technicianRepo.save(technician);
       await this.userRoleService.assignRole(savedTech.serviceNum, UserRoleEnum.TECHNICIAN);
       return savedTech;
     } catch (error) {
+      if (error instanceof ConflictException) throw error;
       if (error.code === '23505') {
         throw new ConflictException(
           'Technician with the same Service Number or Email already exists.',
