@@ -1,4 +1,4 @@
-import { NestFactory } from '@nestjs/core';
+﻿import { NestFactory } from '@nestjs/core';
 import helmet from 'helmet';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
@@ -9,7 +9,7 @@ import { Server, Socket } from 'socket.io';
 import { join } from 'path';
 import * as express from 'express';
 import * as fs from 'fs';
-import { ValidationPipe } from '@nestjs/common';
+import { verify } from 'jsonwebtoken';
 
 interface UserData {
   serviceNum: string;
@@ -46,19 +46,27 @@ export function emitTechnicianStatusChange(
 export async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
+  app.use(
+    helmet({
+      frameguard: { action: 'deny' },
+      contentSecurityPolicy: {
+        directives: {
+          ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+          'frame-ancestors': ["'none'"],
+        },
+      },
+      hsts: {
+        maxAge: 31536000,
+        includeSubDomains: false,
+        preload: false,
+      },
+      noSniff: true,
     }),
   );
 
-  app.use(helmet());
-
   app.use(cookieParser());
 
-   app.useGlobalPipes(
+  app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
       forbidNonWhitelisted: true,
@@ -90,6 +98,7 @@ export async function bootstrap() {
     'http://localhost:5173',
     'https://localhost:3000',
     'https://localhost:5173',
+    'https://dpdlab1.slt.lk',
     'https://dpdlab1.slt.lk:8448',
   ];
 
@@ -134,6 +143,40 @@ export async function bootstrap() {
       credentials: true,
       methods: ['GET', 'POST'],
     },
+    allowRequest: (req, callback) => {
+      const origin = req.headers.origin;
+      // Disallow untrusted cross-origin requests to prevent CSWSH (VA-07)
+      if (origin && !allowedOrigins.includes(origin)) {
+        return callback('Cross-origin connection rejected: Untrusted origin', false);
+      }
+      callback(null, true);
+    },
+  });
+
+  // Verify JWT token during Socket.IO handshake if credentials/token provided (VA-07)
+  io.use((socket, next) => {
+    try {
+      const cookieHeader = socket.handshake.headers.cookie;
+      let token = socket.handshake.auth?.token;
+
+      if (!token && cookieHeader) {
+        const match = cookieHeader.match(/(?:^|;\s*)jwt=([^;]+)/);
+        if (match) {
+          token = decodeURIComponent(match[1]);
+        }
+      }
+
+      if (token) {
+        const secret = process.env.JWT_SECRET || 'your-secret-key';
+        const decoded = verify(token, secret) as any;
+        const authSocket = socket as AuthenticatedSocket;
+        authSocket.userId = String(decoded.serviceNum || decoded.sub || '');
+        authSocket.userRole = decoded.role;
+      }
+      next();
+    } catch {
+      next(new Error('Authentication error: Invalid or expired token'));
+    }
   });
 
   await app.init();
@@ -141,15 +184,25 @@ export async function bootstrap() {
   httpServer.listen(port, '0.0.0.0', () => { });
 
   io.on('connection', (socket) => {
+    const authSocket = socket as AuthenticatedSocket;
+
+    // Auto-join room if authenticated during handshake
+    if (authSocket.userId) {
+      technicianSockets.set(authSocket.userId, socket.id);
+      void socket.join(`user_${authSocket.userId}`);
+    }
+
     socket.on('user_connected', (userData: UserData) => {
-      const serviceNumStr = String(userData.serviceNum);
-      const authSocket = socket as AuthenticatedSocket;
-      authSocket.userId = serviceNumStr;
-      authSocket.userRole = userData.role;
+      // Use verified identity from JWT token if available, preventing client-side spoofing
+      const verifiedServiceNum = authSocket.userId || String(userData.serviceNum);
+      const verifiedRole = authSocket.userRole || userData.role;
 
-      technicianSockets.set(serviceNumStr, socket.id);
+      authSocket.userId = verifiedServiceNum;
+      authSocket.userRole = verifiedRole;
 
-      void socket.join(`user_${serviceNumStr}`);
+      technicianSockets.set(verifiedServiceNum, socket.id);
+
+      void socket.join(`user_${verifiedServiceNum}`);
     });
 
     socket.on('disconnect', () => {
@@ -173,3 +226,5 @@ if (require.main === module) {
     process.exit(1);
   });
 }
+
+
