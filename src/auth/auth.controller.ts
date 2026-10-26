@@ -289,10 +289,14 @@ export class AuthController {
       }
 
       if (payload.role === 'user') {
-        return { success: true, user: { ...payload, role: 'user' } };
+        // VA-06: Exclude raw JWT Unix timestamp claims (iat, exp) from API response
+        const { iat: _iat, exp: _exp, ...safePayload } = payload;
+        return { success: true, user: { ...safePayload, role: 'user' } };
       }
 
-      return { success: true, user: payload };
+      // VA-06: Exclude raw JWT Unix timestamp claims (iat, exp) from API response
+      const { iat: _iat2, exp: _exp2, ...safePayload2 } = payload;
+      return { success: true, user: safePayload2 };
     } catch (error) {
       if (error instanceof Error) {
         if (error.name === 'TokenExpiredError') {
