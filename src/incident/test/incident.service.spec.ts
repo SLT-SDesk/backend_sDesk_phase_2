@@ -39,6 +39,8 @@ describe('IncidentService', () => {
   const mockNotificationsService = {
     sendIncidentAssignmentNotification: jest.fn(),
     sendIncidentStatusChangeNotification: jest.fn(),
+    sendIncidentCreatedSms: jest.fn().mockResolvedValue(true),
+    sendIncidentClosedSms: jest.fn().mockResolvedValue(true),
   };
 
   const mockErpService = {

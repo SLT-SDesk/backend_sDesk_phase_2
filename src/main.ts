@@ -45,17 +45,20 @@ export function emitTechnicianStatusChange(
 export async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  app.use(helmet());
+
+  app.use(cookieParser());
+
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
       forbidNonWhitelisted: true,
       transform: true,
+      transformOptions: {
+        enableImplicitConversion: true,
+      },
     }),
   );
-
-  app.use(helmet());
-
-  app.use(cookieParser());
 
   const uploadsDir = join(process.cwd(), 'uploads', 'incident_attachments');
   try {
