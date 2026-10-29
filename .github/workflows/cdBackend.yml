@@ -25,7 +25,7 @@ jobs:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: 22  # Updated to default SSH port
+          port: 3251
           source: "./"                  #Update 3/12/2025 Changed from backend_sDesk_phase_2 to ./
           target: "/home/${{ secrets.SSH_USERNAME }}/sdesk_backend_tmp/"
           strip_components: 1
@@ -36,7 +36,7 @@ jobs:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: 22  # Updated to default SSH port
+          port: 3251
           script: |
             echo "Starting SDesk Backend Deployment..."
 
