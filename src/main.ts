@@ -75,14 +75,20 @@ export async function bootstrap() {
 
   app.use('/uploads', express.static(join(process.cwd(), 'uploads')));
 
-  const allowedOrigins = [
-    'https://sdesk-frontend.vercel.app',
-    'http://localhost:3000',
-    'http://localhost:5173',
-    'https://localhost:3000',
-    'https://localhost:5173',
-    'https://dpdlab1.slt.lk:8448',
-  ];
+  const allowedOrigins =
+    process.env.NODE_ENV === 'production'
+      ? [
+        'https://sdesk-frontend.vercel.app',
+        'https://dpdlab1.slt.lk:8448',
+      ]
+      : [
+        'http://localhost:3000',
+        'http://localhost:5173',
+        'https://localhost:3000',
+        'https://localhost:5173',
+        'https://sdesk-frontend.vercel.app',
+        'https://dpdlab1.slt.lk:8448',
+      ];
 
   app.use((req: Request, res: Response, next: NextFunction) => {
     next();

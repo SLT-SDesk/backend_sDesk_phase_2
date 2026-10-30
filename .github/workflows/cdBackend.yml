@@ -1,0 +1,41 @@
+name: Deploy SDesk Backend (Testing)
+
+on:
+  push:
+    branches:
+      - testing
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: � Deploy Backend via Git Pull & Restart PM2
+        uses: appleboy/ssh-action@v0.1.10
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 3251
+          script: |
+            echo "Starting SDesk Backend Deployment..."
+
+            echo "Pulling latest code from GitHub..."
+            cd /var/www/sdesk_new/backend_sDesk_phase_2
+            git fetch origin
+            git checkout testing
+            git pull origin testing
+
+            echo "Installing backend dependencies..."
+            rm -rf package-lock.json node_modules
+            npm install
+            npm run build
+
+            echo "Restarting Backend using PM2..."
+            sudo pm2 status
+            sudo pm2 delete sdesk || true
+            sudo pm2 start dist/main.js --name sdesk --update-env
+            pm2 save
+
+            echo "Backend Deployment Completed Successfully."
